@@ -27,34 +27,37 @@ func Run(root string) error {
 	}
 	m := &model{roots: roots, root: root, byPriority: true}
 	m.reload()
-	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
 type model struct {
-	root       string
-	roots      []string
-	rows       []row
-	stores     []*storeView
-	byPerson   bool
-	byPriority bool
-	waitW      int // width of the waiting column, 0 when nothing waits
-	errs       []string
-	cursor     int
-	offset     int
-	scroll     int // first line of the detail panel
-	width      int
-	height     int
-	all        bool
-	todo       bool
-	ask        *ask // the form on the bottom line, when one is open
-	filter     string
-	typing     bool
-	detail     bool
-	legend     bool // the detail panel shows what marks and colours mean
-	convs      map[string]convAt
-	status     string
-	statusErr  bool
+	root        string
+	roots       []string
+	rows        []row
+	stores      []*storeView
+	byPerson    bool
+	byPriority  bool
+	waitW       int // width of the waiting column, 0 when nothing waits
+	errs        []string
+	cursor      int
+	offset      int
+	scroll      int // first line of the detail panel
+	width       int
+	height      int
+	all         bool
+	todo        bool
+	ask         *ask // the form on the bottom line, when one is open
+	filter      string
+	typing      bool
+	detail      bool
+	legend      bool // the detail panel shows what marks and colours mean
+	side        bool // enter docks the agent at the TUI's right
+	placeholder string
+	docked      docked
+	convs       map[string]convAt
+	status      string
+	statusErr   bool
 }
 
 type tickMsg time.Time
@@ -197,12 +200,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.verb == "park" || msg.verb == "unpark" || msg.verb == "unread":
 		case msg.verb == "attach":
 			m.status, m.statusErr = msg.id+": pane focused", false
+		case msg.verb == "dock":
+			m.status, m.statusErr = msg.id+": agent docked at the right", false
 		case msg.verb == "desk":
 			m.status, m.statusErr = "desk: fresh conversation started, the previous one is archived", false
 		default:
 			m.status, m.statusErr = firstLine(msg.out, msg.id+": done"), false
 		}
 		m.reload()
+	case tea.MouseMsg:
+		if m.ask == nil && !m.typing {
+			return m, m.mouse(msg)
+		}
 	case tea.KeyMsg:
 		if m.ask != nil {
 			finished, cmd := m.ask.key(msg)
@@ -221,18 +230,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) key(k string) tea.Cmd {
 	r := m.selected()
+	if m.side && r != nil && (k == "enter" || (r.desk && (k == "s" || k == "o"))) {
+		return m.dock(r)
+	}
 	if r != nil && r.desk {
 		if cmd, handled := m.deskKey(k, r); handled {
 			return cmd
 		}
 	}
 	switch k {
+	case "v":
+		return m.toggleSide()
 	case "b":
 		m.toDesk()
 	case "?":
 		m.legend = !m.legend
 		m.scroll = 0
 	case "q", "ctrl+c":
+		if m.side {
+			return tea.Sequence(m.leaveSide(), tea.Quit)
+		}
 		return tea.Quit
 	case "up", "k":
 		m.move(-1)
@@ -496,6 +513,9 @@ func (m *model) topBar() string {
 		order = "by priority"
 	}
 	scope += "  ·  " + order
+	if m.side {
+		scope += "  ·  side"
+	}
 	if m.byPerson {
 		scope = "waiting, by person"
 	}
@@ -538,7 +558,7 @@ func (m *model) bottomBar() string {
 	line := keyLine([][2]string{{"+", "new"}, {"enter", "pane"}, {"W", "wait"}, {"u", "resume"}, {"x", "close"}, {"D", "delete"}, {"n", "no action"}, {"m", "unread"},
 		{"s", "start"}, {"o", "start + prompt"}, {"R", "restart"}}) + "\n" +
 		keyLine([][2]string{{"↑↓", "move"}, {"b", "desk"}, {"J K", "scroll"}, {"i", "ingest now"}, {"t", "to do"}, {"w", "by person"}, {"a", "all"},
-			{"p", "priority"}, {"/", "filter"}, {"tab", "detail"}, {"?", "legend"}, {"q", "quit"}})
+			{"p", "priority"}, {"/", "filter"}, {"tab", "detail"}, {"v", "side"}, {"?", "legend"}, {"q", "quit"}})
 	if len(m.errs) > 0 {
 		line = lipgloss.NewStyle().Foreground(cStopped).Render(m.errs[0])
 	}

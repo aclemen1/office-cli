@@ -53,6 +53,8 @@ type RunState struct {
 	Session            string       `json:"session,omitempty"`
 	PaneID             string       `json:"pane_id,omitempty"`
 	TabID              string       `json:"tab_id,omitempty"`
+	Home               string       `json:"home,omitempty"`        // workspace to move the pane back to, while it is docked
+	Placeholder        string       `json:"placeholder,omitempty"` // pane whose place it took
 	Prompts            int          `json:"prompts"`
 	Contexts           int          `json:"contexts"`
 	PendingTransitions []Transition `json:"pending_transitions"`

@@ -466,6 +466,11 @@ func (a *App) renderPrompt(d *dossier.Dossier, kind, instruction string, summary
 // ---------------------------------------------------------------- sessions
 
 func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
+	// herdr-acp takes the pane's current tab as the session's own: it renames
+	// it and closes it with the session. A docked pane goes home first.
+	if err := a.Undock(d); err != nil {
+		return nil, err
+	}
 	if IsDesk(d) {
 		if err := a.ensureDesk(d); err != nil {
 			return nil, err
@@ -572,6 +577,17 @@ func (a *App) sendPrompt(d *dossier.Dossier, text string) error {
 // without a session gets one, with its open prompt unless noPrompt. The desk
 // starts without a prompt: its CLAUDE.md says what it does.
 func (a *App) Attach(d *dossier.Dossier, noPrompt bool) error {
+	if err := a.ensureRunning(d, noPrompt); err != nil {
+		return err
+	}
+	if d.Run.TabID != "" {
+		_ = exec.Command("herdr", "tab", "focus", d.Run.TabID).Run()
+	}
+	return a.MarkSeen(d)
+}
+
+// ensureRunning starts or resumes the session so that its pane is alive.
+func (a *App) ensureRunning(d *dossier.Dossier, noPrompt bool) error {
 	if d.Run.Session == "" && (noPrompt || IsDesk(d)) {
 		if err := a.startSilent(d); err != nil {
 			return err
@@ -589,10 +605,7 @@ func (a *App) Attach(d *dossier.Dossier, noPrompt bool) error {
 			return err
 		}
 	}
-	if d.Run.TabID != "" {
-		_ = exec.Command("herdr", "tab", "focus", d.Run.TabID).Run()
-	}
-	return a.MarkSeen(d)
+	return nil
 }
 
 // startSilent starts a new session in a tab and sends it nothing.

@@ -138,6 +138,48 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
+		Category: "dossier", Name: "dock", Summary: "Show a dossier's agent in place of a placeholder pane, e.g. the one at the TUI's right.",
+		Discussion: "The placeholder waits in a tab of its own; `dossier undock` gives it its place back and moves the agent to its " +
+			"home workspace, and so does any session start, prompt, restart or close, since the ACP server treats the pane's " +
+			"current tab as the session's own. The geometry of the placeholder's tab does not change.",
+		Params: []spec.Param{idParam("Dossier id, or desk."),
+			{Name: "placeholder", Kind: spec.String, Required: true, Help: "herdr pane id whose place the agent takes."}},
+		Effects: []string{"Starts or resumes the session when its pane is gone.",
+			"Moves the agent's pane into the placeholder's tab, swaps them, and moves the placeholder to a tab of its own; focuses the agent."},
+		Examples: []string{"dossier dock U-0033 --placeholder w5:p8"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				d, err := a.LoadAny(ctx.Str("id"))
+				if err != nil {
+					return nil, err
+				}
+				if err := a.Dock(d, ctx.Str("placeholder")); err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": d.ID, "pane_id": d.Run.PaneID, "home": d.Run.Home}, nil
+			})
+		},
+	})
+	spec.Register(&spec.Action{
+		Category: "dossier", Name: "undock", Summary: "Move a docked agent pane back to a tab of its own.",
+		Params:   []spec.Param{idParam("Dossier id, or desk.")},
+		Effects:  []string{"Moves the pane into a new tab of its home workspace, labelled like the dossier; nothing when it is not docked."},
+		Examples: []string{"dossier undock U-0033"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				d, err := a.LoadAny(ctx.Str("id"))
+				if err != nil {
+					return nil, err
+				}
+				if err := a.Undock(d); err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": d.ID, "tab_id": d.Run.TabID}, nil
+			})
+		},
+	})
+
+	spec.Register(&spec.Action{
 		Category: "dossier", Name: "desk", Summary: "Focus the store's desk: a lasting session that opens dossiers and answers about them.",
 		Discussion: "The desk has no state and never closes; ingest resumes it when its tab is gone. Its id is <prefix>-DESK " +
 			"(U-DESK), which attach, restart, prompt, show and grep accept. Its charter is <store>/desk/CLAUDE.md.",

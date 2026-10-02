@@ -645,6 +645,22 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
+		Category: "store", Name: "placeholder", Summary: "Fill the pane that docked agents take the place of: its name, the time, the stores' counts.",
+		Discussion: "Interactive. The TUI's side mode (v) runs it in the pane it keeps at its right.",
+		Params: []spec.Param{
+			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+		},
+		Examples: []string{"dossier placeholder ~/dossiers"},
+		Run: func(ctx *spec.Context) (any, error) {
+			root, err := rootOf(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return nil, tui.RunPlaceholder(root)
+		},
+	})
+
+	spec.Register(&spec.Action{
 		Category: "store", Name: "stores", Summary: "List the stores under a root: sphere, id prefix, charter, open and waiting dossiers.",
 		Discussion: "A store is one sphere of the user's affairs. Read its charter (CLAUDE.md at its root) before working in it: " +
 			"it says what belongs there and how its memory is searched. Pass a store to any action with --store <root>.",
