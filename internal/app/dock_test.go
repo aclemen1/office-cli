@@ -41,7 +41,7 @@ func TestDockTradesPlacesWithThePlaceholderAndBack(t *testing.T) {
 	f.a.Open(OpenParams{Title: "Affaire"})
 	calls := fakeHerdr(t)
 	d := mustGet(t, f, "1")
-	if err := f.a.Dock(d, "ph"); err != nil {
+	if err := f.a.Dock(d, "ph", true); err != nil {
 		t.Fatal(err)
 	}
 	if d.Run.Home != "dossiers-ws" || d.Run.Placeholder != "ph" || d.Run.TabID != "" || d.Run.PaneID != "tui-ws:p1" {
@@ -114,11 +114,11 @@ func TestASecondTUIGivesTheFirstPlaceholderItsPlaceBack(t *testing.T) {
 	f.a.Open(OpenParams{Title: "Affaire"})
 	calls := fakeHerdr(t)
 	d := mustGet(t, f, "1")
-	if err := f.a.Dock(d, "ph"); err != nil {
+	if err := f.a.Dock(d, "ph", true); err != nil {
 		t.Fatal(err)
 	}
 	*calls = nil
-	if err := f.a.Dock(d, "ph2"); err != nil {
+	if err := f.a.Dock(d, "ph2", true); err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Join(*calls, "\n")
@@ -126,5 +126,17 @@ func TestASecondTUIGivesTheFirstPlaceholderItsPlaceBack(t *testing.T) {
 	in := strings.Index(got, "--target-pane ph2")
 	if back < 0 || in < back || d.Run.Placeholder != "ph2" || d.Run.Home != "dossiers-ws" {
 		t.Fatalf("run %+v\n%s", d.Run, got)
+	}
+}
+
+func TestDockCanLeaveTheFocusInTheTUI(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Affaire"})
+	calls := fakeHerdr(t)
+	if err := f.a.Dock(mustGet(t, f, "1"), "ph", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(*calls, "\n"); !strings.Contains(got, "--target-pane ph --no-focus") {
+		t.Fatalf("dock moved the focus:\n%s", got)
 	}
 }

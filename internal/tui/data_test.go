@@ -273,3 +273,97 @@ func TestThePlaceholderRereadsAtOnceWhenAnAgentDocks(t *testing.T) {
 		t.Fatal("a touched stamp should make the placeholder reread the stores")
 	}
 }
+
+func TestNavigationGoesWhereYouAreNeeded(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	mk := func(id, activity string, unread bool) row {
+		return row{store: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: activity, unread: unread}
+	}
+	m := &model{side: true, placeholder: "w1:p9", rows: []row{
+		mk("D-1", "idle", false), mk("D-2", "ready", false), mk("D-3", "idle", true), mk("D-4", "blocked", false),
+	}}
+	var got []string
+	for i := 0; i < 4; i++ {
+		m.key("]")
+		got = append(got, m.docked.id)
+	}
+	if strings.Join(got, ",") != "D-4,D-2,D-3,D-4" {
+		t.Fatalf("] order %v: permission, your turn, unread, then around", got)
+	}
+	if m.forYou() != 2 {
+		t.Fatalf("for you %d", m.forYou())
+	}
+	m.key("'")
+	if m.docked.id != "D-3" {
+		t.Fatalf("' should go back to D-3, got %s", m.docked.id)
+	}
+	m.key("'")
+	if m.docked.id != "D-4" {
+		t.Fatalf("' again should toggle to D-4, got %s", m.docked.id)
+	}
+}
+
+func TestTheFooterShowsWhatMakesSenseNow(t *testing.T) {
+	keys := func(l [][2]string) string {
+		var s []string
+		for _, k := range l {
+			s = append(s, k[0])
+		}
+		return strings.Join(s, " ")
+	}
+	sv := &storeView{root: "/s"}
+	waiting := row{store: sv, d: &dossier.Dossier{ID: "D-1", State: dossier.Waiting, Run: dossier.RunState{Session: "x"}}, activity: "idle"}
+	m := &model{rows: []row{waiting}}
+	r, nav := m.footer()
+	if got := keys(r); !strings.Contains(got, "u") || strings.Contains(got, "n") || strings.Contains(keys(nav), "g d") {
+		t.Fatalf("waiting row keys %q, nav %q", got, keys(nav))
+	}
+	m.key("g")
+	if r, _ := m.footer(); keys(r) != "g d i t w a" {
+		t.Fatalf("after g: %q", keys(r))
+	}
+	m.key("esc")
+	if m.gPending {
+		t.Fatal("esc should cancel g")
+	}
+}
+
+func TestTheTUIComesBackWhereItWas(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	a := &app.App{S: s}
+	a.Open(app.OpenParams{Title: "Un", NoStart: true})
+	a.Open(app.OpenParams{Title: "Deux", NoStart: true})
+	m := &model{roots: store.Discover(root), root: root}
+	m.restore(loadState(root), false)
+	if !m.byPriority {
+		t.Fatal("a first start sorts by priority")
+	}
+	m.todo, m.byPriority = true, false
+	m.reload()
+	for i, r := range m.rows {
+		if r.d != nil && r.d.Title == "Deux" {
+			m.cursor = i
+		}
+	}
+	m.lastDocked = docked{"/s", "D-0001"}
+	m.save()
+	n := &model{roots: store.Discover(root), root: root}
+	n.restore(loadState(root), false)
+	if !n.todo || n.byPriority || n.selected() == nil || n.selected().d.Title != "Deux" || n.lastDocked.id != "D-0001" {
+		t.Fatalf("restored todo=%v priority=%v selected=%+v last=%+v", n.todo, n.byPriority, n.selected(), n.lastDocked)
+	}
+}
+
+func TestTheSideRatioComesBackWithinBounds(t *testing.T) {
+	if r := (&model{}).ratio(); r != "0.3500" {
+		t.Fatalf("default %s", r)
+	}
+	if r := (&model{sideRatio: 0.5}).ratio(); r != "0.5000" {
+		t.Fatalf("saved %s", r)
+	}
+	if r := (&model{sideRatio: 0.99}).ratio(); r != "0.3500" {
+		t.Fatalf("a ratio that leaves no room falls back: %s", r)
+	}
+}

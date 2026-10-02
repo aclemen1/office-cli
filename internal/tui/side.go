@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,7 +37,7 @@ func (m *model) toggleSide() tea.Cmd {
 		m.status, m.statusErr = "side mode needs the TUI to run in a herdr pane", true
 		return nil
 	}
-	out, err := exec.Command("herdr", "pane", "split", tui, "--direction", "right", "--ratio", "0.35").Output()
+	out, err := exec.Command("herdr", "pane", "split", tui, "--direction", "right", "--ratio", m.ratio()).Output()
 	var r struct {
 		Result struct {
 			Pane struct {
@@ -49,7 +50,7 @@ func (m *model) toggleSide() tea.Cmd {
 		return nil
 	}
 	m.placeholder, m.side = r.Result.Pane.PaneID, true
-	_ = exec.Command("herdr", "pane", "run", m.placeholder, fmt.Sprintf("exec %q placeholder %q", dossierBin(), m.root)).Run()
+	_ = exec.Command("herdr", "pane", "run", m.placeholder, fmt.Sprintf("exec %q placeholder %q --tui %q", dossierBin(), m.root, tui)).Run()
 	m.status, m.statusErr = "side mode on: enter shows a dossier's agent at the right; v turns it off", false
 	return nil
 }
@@ -71,13 +72,20 @@ func (m *model) leaveSide() tea.Cmd {
 
 // dock shows the row's agent in place of the placeholder, after sending the
 // one docked before back home.
-func (m *model) dock(r *row) tea.Cmd {
+func (m *model) dock(r *row, focus bool) tea.Cmd {
+	args := []string{"--placeholder", m.placeholder}
+	if !focus {
+		args = append(args, "--no-focus")
+	}
 	prev, next, placeholder := m.docked, docked{r.store.root, r.d.ID}, m.placeholder
 	if prev == next {
 		return func() tea.Msg {
-			out, err := exec.Command(dossierBin(), "dock", next.id, "--placeholder", placeholder, "--store", next.root, "--format", "text").CombinedOutput()
+			out, err := exec.Command(dossierBin(), append(append([]string{"dock", next.id}, args...), "--store", next.root, "--format", "text")...).CombinedOutput()
 			return doneMsg{id: next.id, verb: "dock", out: strings.TrimSpace(string(out)), err: err}
 		}
+	}
+	if prev.id != "" {
+		m.lastDocked = prev
 	}
 	m.docked = next
 	m.status, m.statusErr = r.d.Label()+": docking its agent…", false
@@ -87,7 +95,7 @@ func (m *model) dock(r *row) tea.Cmd {
 				return doneMsg{id: prev.id, verb: "undock", out: strings.TrimSpace(string(out)), err: err}
 			}
 		}
-		out, err := exec.Command(dossierBin(), "dock", next.id, "--placeholder", placeholder, "--store", next.root, "--format", "text").CombinedOutput()
+		out, err := exec.Command(dossierBin(), append(append([]string{"dock", next.id}, args...), "--store", next.root, "--format", "text")...).CombinedOutput()
 		return doneMsg{id: next.id, verb: "dock", out: strings.TrimSpace(string(out)), err: err}
 	}
 }
@@ -146,9 +154,10 @@ func (m *model) heal() tea.Cmd {
 		prev, placeholder := m.docked, m.placeholder
 		m.docked = docked{}
 		tui, tab := os.Getenv("HERDR_PANE_ID"), os.Getenv("HERDR_TAB_ID")
+		ratio := m.ratio()
 		return func() tea.Msg {
 			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").Run()
-			_ = exec.Command("herdr", "pane", "move", placeholder, "--tab", tab, "--split", "right", "--target-pane", tui, "--ratio", "0.35", "--no-focus").Run()
+			_ = exec.Command("herdr", "pane", "move", placeholder, "--tab", tab, "--split", "right", "--target-pane", tui, "--ratio", ratio, "--no-focus").Run()
 			return nil
 		}
 	}
@@ -163,10 +172,20 @@ func (m *model) sendHome() tea.Cmd {
 		return nil
 	}
 	prev, placeholder := m.docked, m.placeholder
-	m.docked = docked{}
+	m.docked, m.lastDocked = docked{}, prev
 	m.status, m.statusErr = prev.id+": sending its agent home…", false
 	return func() tea.Msg {
 		out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").CombinedOutput()
 		return doneMsg{id: prev.id, verb: "undock", out: strings.TrimSpace(string(out)), err: err}
 	}
+}
+
+// ratio is the TUI's share of the width when it opens the placeholder: the
+// one saved at the last exit, or 35%.
+func (m *model) ratio() string {
+	r := m.sideRatio
+	if r <= 0.05 || r >= 0.95 {
+		r = 0.35
+	}
+	return strconv.FormatFloat(r, 'f', 4, 64)
 }

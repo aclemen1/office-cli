@@ -1023,3 +1023,14 @@ func TranscriptPaths(d *dossier.Dossier) []string {
 	}
 	return out
 }
+
+// LastActivity is when the session's conversation last moved: the time of its
+// live transcript, or of the archived copy.
+func LastActivity(d *dossier.Dossier) time.Time {
+	for _, p := range []string{transcriptOf(d.Run.Session), d.Path("transcript.jsonl")} {
+		if fi, err := os.Stat(p); p != "" && err == nil {
+			return fi.ModTime()
+		}
+	}
+	return time.Time{}
+}

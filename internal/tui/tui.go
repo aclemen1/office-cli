@@ -20,13 +20,18 @@ import (
 const refreshEvery = 5 * time.Second
 
 // Run starts the TUI on the stores found under root.
-func Run(root string) error {
+// Inside a herdr pane it starts in side mode, unless noSide.
+func Run(root string, noSide, reset bool) error {
 	roots := store.Discover(root)
 	if len(roots) == 0 {
 		return fmt.Errorf("no dossier store under %s: a store is a directory holding .dossier/config.toml", root)
 	}
-	m := &model{roots: roots, root: root, byPriority: true}
-	m.reload()
+	m := &model{roots: roots, root: root}
+	saved := loadState(root)
+	if reset {
+		saved = defaultState
+	}
+	m.start = m.restore(saved, !noSide && os.Getenv("HERDR_PANE_ID") != "")
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
@@ -56,6 +61,10 @@ type model struct {
 	side        bool // enter docks the agent at the TUI's right
 	placeholder string
 	docked      docked
+	lastDocked  docked     // the one before, for '
+	start       tea.Cmd    // run once the program starts: docks the agent docked last time
+	saved       savedState // last state written
+	sideRatio   float64    // the TUI's share of the width in side mode, 0 for the default
 	convs       map[string]convAt
 	status      string
 	statusErr   bool
@@ -71,7 +80,7 @@ func tick() tea.Cmd {
 	return tea.Tick(refreshEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *model) Init() tea.Cmd { return tick() }
+func (m *model) Init() tea.Cmd { return tea.Batch(tick(), m.start) }
 
 func (m *model) selected() *row {
 	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].d != nil {
@@ -191,6 +200,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.reload()
+		m.save()
 		return m, tea.Batch(tick(), m.heal())
 	case doneMsg:
 		switch {
@@ -243,6 +253,8 @@ func (m *model) goTo(k string) {
 		m.cursor = -1
 		m.move(1)
 		return
+	case "esc":
+		return
 	case "d":
 		m.toDesk()
 		return
@@ -270,7 +282,6 @@ func (m *model) key(k string) tea.Cmd {
 	}
 	if k == "g" {
 		m.gPending = true
-		m.status, m.statusErr = "g…  g top · d desk · i active · t to do · w by person · a all", false
 		return nil
 	}
 	if to, ok := aliases[k]; ok {
@@ -282,8 +293,11 @@ func (m *model) key(k string) tea.Cmd {
 			return cmd
 		}
 	}
-	if m.side && r != nil && (k == "enter" || (r.desk && (k == "s" || k == "o"))) {
-		return m.dock(r)
+	if m.side && r != nil && (k == "enter" || (r.desk && k == "s")) {
+		return m.dock(r, true)
+	}
+	if m.side && r != nil && (k == "O" || k == "shift+enter") {
+		return m.dock(r, false)
 	}
 	if r != nil && r.desk {
 		if cmd, handled := m.deskKey(k, r); handled {
@@ -295,12 +309,19 @@ func (m *model) key(k string) tea.Cmd {
 		return m.toggleSide()
 	case "h":
 		return m.sendHome()
+	case "'":
+		return m.toggleLast()
+	case "]":
+		return m.nextAttention()
+	case "[":
+		return m.lastManifested()
 	case "b":
 		m.toDesk()
 	case "?":
 		m.legend = !m.legend
 		m.scroll = 0
 	case "q", "ctrl+c":
+		m.save()
 		if m.side {
 			return tea.Sequence(m.leaveSide(), tea.Quit)
 		}
@@ -575,6 +596,9 @@ func (m *model) topBar() string {
 	if unread > 0 {
 		left += sFaint.Render("   │   ") + lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render(fmt.Sprintf("• %d unread", unread))
 	}
+	if n := m.forYou(); n > 0 {
+		left += sFaint.Render("   │   ") + lipgloss.NewStyle().Foreground(cWorking).Bold(true).Render(fmt.Sprintf("] %d for you", n))
+	}
 	if m.filter != "" || m.typing {
 		cur := ""
 		if m.typing {
@@ -599,10 +623,8 @@ func (m *model) bottomBar() string {
 		}
 		return strings.Join(parts, sFaint.Render("  ·  "))
 	}
-	line := keyLine([][2]string{{"c", "new"}, {"o", "open"}, {"e", "close"}, {"W", "wait"}, {"u", "resume"}, {"#", "delete"}, {"n", "no action"}, {"U", "unread"},
-		{"s", "start"}, {"R", "restart"}, {"v", "side"}, {"h", "send home"}}) + "\n" +
-		keyLine([][2]string{{"j k", "move"}, {"gg G", "top, end"}, {"g d", "desk"}, {"g i", "active"}, {"g t", "to do"}, {"g w", "by person"}, {"g a", "all"},
-			{"/", "filter"}, {"i", "ingest"}, {"p", "priority"}, {"tab", "detail"}, {"?", "keys"}, {"q", "quit"}})
+	row, nav := m.footer()
+	line := keyLine(row) + "\n" + keyLine(nav)
 	if len(m.errs) > 0 {
 		line = lipgloss.NewStyle().Foreground(cStopped).Render(m.errs[0])
 	}

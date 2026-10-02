@@ -19,9 +19,10 @@ import (
 // says what the pane is, the time, and where the stores stand. While an agent
 // holds its place, it names that agent: enter or a click jumps to it, u gives
 // the place back.
-func RunPlaceholder(root string) error {
+// With a tui pane, it closes its own pane and stops once that pane is gone.
+func RunPlaceholder(root, tui string) error {
 	roots := store.Discover(root)
-	p := &placeholder{roots: roots, stamps: stampsOf(roots), self: os.Getenv("HERDR_PANE_ID")}
+	p := &placeholder{roots: roots, stamps: stampsOf(roots), self: os.Getenv("HERDR_PANE_ID"), tui: tui}
 	_, err := tea.NewProgram(p, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
@@ -37,6 +38,8 @@ type placeholder struct {
 	note          string
 	stamp         time.Time // newest dock.stamp seen
 	stamps        []string
+	tui           string // the TUI pane it serves, if any
+	ticks         int
 }
 
 // heldBy is the dossier whose agent sits in this placeholder's place.
@@ -61,6 +64,9 @@ func (p *placeholder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clockMsg:
 		p.now = time.Time(msg)
 		p.watch()
+		if p.ticks++; p.ticks%8 == 0 && p.orphaned() {
+			return p, p.leave()
+		}
 		return p, clock()
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
@@ -188,4 +194,27 @@ func stampsOf(roots []string) []string {
 		}
 	}
 	return out
+}
+
+// orphaned: the TUI this placeholder serves is gone.
+func (p *placeholder) orphaned() bool {
+	if p.tui == "" {
+		return false
+	}
+	_, err := app.PaneTab(p.tui)
+	return err != nil
+}
+
+// leave sends home the agent that holds this placeholder's place, closes the
+// placeholder's pane and stops.
+func (p *placeholder) leave() tea.Cmd {
+	p.counted = time.Time{}
+	p.refresh()
+	if h := p.holder; h != nil {
+		_ = exec.Command(dossierBin(), "undock", h.d.ID, "--placeholder", p.self, "--store", h.root, "--format", "text").Run()
+	}
+	if p.self != "" {
+		_ = exec.Command("herdr", "pane", "close", p.self).Run()
+	}
+	return tea.Quit
 }

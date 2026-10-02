@@ -629,10 +629,12 @@ func init() {
 
 	spec.Register(&spec.Action{
 		Category: "store", Name: "tui", Summary: "Browse every store under a root: dossiers, links, agents; jump to a dossier's pane.",
-		Discussion: "Interactive, for a person in a terminal. Enter focuses the dossier's herdr tab and resumes its session " +
-			"when the tab is gone; S also starts a session for a dossier that has none.",
+		Discussion: "Interactive, for a person in a terminal. Inside a herdr pane it starts in side mode: a placeholder pane at its " +
+			"right, where enter shows the selected dossier's agent. Outside side mode, enter focuses the agent's tab. It comes back to the views, selection and docked agent of its last exit; --reset starts afresh.",
 		Params: []spec.Param{
 			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "no-side", Kind: spec.Bool, Help: "Start without the placeholder pane; v turns side mode on later."},
+			{Name: "reset", Kind: spec.Bool, Help: "Start from the default views instead of the state saved at the last exit."},
 		},
 		Examples: []string{"dossier tui", "dossier tui ~/dossiers"},
 		Run: func(ctx *spec.Context) (any, error) {
@@ -640,7 +642,7 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			return nil, tui.Run(root)
+			return nil, tui.Run(root, ctx.Bool("no-side"), ctx.Bool("reset"))
 		},
 	})
 
@@ -649,6 +651,7 @@ func init() {
 		Discussion: "Interactive. The TUI's side mode (v) runs it in the pane it keeps at its right.",
 		Params: []spec.Param{
 			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "tui", Kind: spec.String, Help: "herdr pane of the TUI it serves: once that pane is gone, it sends its docked agent home, closes its own pane and stops."},
 		},
 		Examples: []string{"dossier placeholder ~/dossiers"},
 		Run: func(ctx *spec.Context) (any, error) {
@@ -656,7 +659,7 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			return nil, tui.RunPlaceholder(root)
+			return nil, tui.RunPlaceholder(root, ctx.Str("tui"))
 		},
 	})
 

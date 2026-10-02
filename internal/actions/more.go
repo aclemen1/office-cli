@@ -173,7 +173,8 @@ func init() {
 			"home workspace, and so does any session start, prompt, restart or close, since the ACP server treats the pane's " +
 			"current tab as the session's own. The geometry of the placeholder's tab does not change.",
 		Params: []spec.Param{idParam("Dossier id, or desk."),
-			{Name: "placeholder", Kind: spec.String, Required: true, Help: "herdr pane id whose place the agent takes."}},
+			{Name: "placeholder", Kind: spec.String, Required: true, Help: "herdr pane id whose place the agent takes."},
+			{Name: "no-focus", Kind: spec.Bool, Help: "Leave the focus where it is, e.g. in the TUI."}},
 		Effects: []string{"Starts or resumes the session when its pane is gone.",
 			"Moves the agent's pane into the placeholder's tab, swaps them, and moves the placeholder to a tab of its own; focuses the agent."},
 		Examples: []string{"dossier dock U-0033 --placeholder w5:p8"},
@@ -183,7 +184,7 @@ func init() {
 				if err != nil {
 					return nil, err
 				}
-				if err := a.Dock(d, ctx.Str("placeholder")); err != nil {
+				if err := a.Dock(d, ctx.Str("placeholder"), !ctx.Bool("no-focus")); err != nil {
 					return nil, err
 				}
 				return map[string]any{"id": d.ID, "pane_id": d.Run.PaneID, "home": d.Run.Home}, nil

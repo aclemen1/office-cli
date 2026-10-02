@@ -103,7 +103,7 @@ func move(pane string, args ...string) (string, string, error) {
 // Dock runs the session and puts its pane in place of the placeholder pane,
 // e.g. the one the TUI keeps at its right. The placeholder waits in a tab of
 // its own until Undock brings it back.
-func (a *App) Dock(d *dossier.Dossier, placeholder string) error {
+func (a *App) Dock(d *dossier.Dossier, placeholder string, focus bool) error {
 	if placeholder == "" {
 		return spec.UserError("dock needs the placeholder pane the agent takes the place of, e.g. --placeholder w5:p8")
 	}
@@ -128,7 +128,7 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string) error {
 		return spec.UserError("placeholder %s waits alone in its tab: another agent holds its place. Undock that one first", placeholder)
 	}
 	if own.TabID != slot.TabID {
-		paneNow, placeholderNow, _, err := trade(d.Run.PaneID, placeholder, slot.WorkspaceID, "dock placeholder", "--focus")
+		paneNow, placeholderNow, _, err := trade(d.Run.PaneID, placeholder, slot.WorkspaceID, "dock placeholder", focusFlag(focus))
 		if err != nil {
 			return err
 		}
@@ -211,4 +211,11 @@ func (a *App) touchDock() {
 	p := a.DockStamp()
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
 	_ = os.WriteFile(p, []byte(time.Now().Format(time.RFC3339Nano)+"\n"), 0o644)
+}
+
+func focusFlag(focus bool) string {
+	if focus {
+		return "--focus"
+	}
+	return "--no-focus"
 }
