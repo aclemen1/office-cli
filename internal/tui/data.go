@@ -22,11 +22,52 @@ type row struct {
 	depth    int
 	last     []bool // per ancestor level: was that ancestor the last child
 	blocked  []string
-	cycle    bool // already shown above on this branch
-	unread   bool // changed since the user last opened its pane
-	person   bool // header of a waiting group
-	desk     bool // store header, carrying the store's desk in d
+	cycle    bool           // already shown above on this branch
+	unread   bool           // changed since the user last opened its pane
+	person   bool           // header of a waiting group
+	desk     bool           // store header, carrying the store's desk in d
+	agent    *app.AgentPane // an agent in a herdr pane that no dossier holds
 	count    int
+}
+
+func (r row) selectable() bool { return r.d != nil || r.agent != nil }
+
+// key identifies the row across reloads.
+func (r row) key() string {
+	switch {
+	case r.d != nil:
+		return r.store.root + "|" + r.d.ID
+	case r.agent != nil:
+		return "agent|" + r.agent.Session
+	}
+	return ""
+}
+
+// agentRows lists the Claude Code agents whose session no dossier or desk holds.
+func agentRows(stores []*storeView, filter string) []row {
+	held := map[string]bool{}
+	for _, sv := range stores {
+		for _, d := range append(append([]*dossier.Dossier{}, sv.all...), sv.a.Desk()) {
+			if d.Run.Session != "" {
+				held[d.Run.Session] = true
+			}
+		}
+	}
+	var out []row
+	for _, ag := range agentsNow() {
+		if held[ag.Session] {
+			continue
+		}
+		if filter != "" && !strings.Contains(strings.ToLower(ag.Title+" "+ag.Cwd), strings.ToLower(filter)) {
+			continue
+		}
+		a := ag
+		out = append(out, row{agent: &a, activity: app.Activity(&dossier.Dossier{Run: dossier.RunState{Session: a.Session, PaneID: a.PaneID}}, stores[0].live)})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return append([]row{{}, {header: "agents without dossier"}}, out...)
 }
 
 // deskRow is the store header: selectable, it stands for the store's desk.
@@ -36,7 +77,7 @@ func deskRow(sv *storeView) row {
 		unread: d.Run.Session != "" && sv.seen.Unread(sv.a, d)}
 }
 
-func (r row) spacer() bool { return r.d == nil && r.header == "" }
+func (r row) spacer() bool { return r.d == nil && r.agent == nil && r.header == "" }
 
 type storeView struct {
 	name  string
@@ -129,6 +170,8 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 		if waiting := waitingRows(stores, filter); len(waiting) > 0 {
 			rows = append(append(rows, row{}), waiting...)
 		}
+	} else if len(stores) > 0 {
+		rows = append(rows, agentRows(stores, filter)...)
 	}
 	return rows, stores, errs
 }
@@ -392,3 +435,6 @@ func links(sv *storeView, d *dossier.Dossier) []linked {
 	}
 	return out
 }
+
+// agentsNow lists the agents in herdr panes. Tests replace it.
+var agentsNow = app.Agents

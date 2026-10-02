@@ -169,3 +169,76 @@ func TestBMovesToTheDeskOfTheSelectedStore(t *testing.T) {
 		t.Fatal("x on the desk should be refused")
 	}
 }
+
+func TestAgentsWithoutDossierFollowTheStores(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	a := &app.App{S: s}
+	a.Open(app.OpenParams{Title: "Affaire", NoStart: true})
+	d, _ := a.Load("1")
+	d.Run.Session = "held"
+	d.Save()
+	old := agentsNow
+	t.Cleanup(func() { agentsNow = old })
+	agentsNow = func() []app.AgentPane {
+		return []app.AgentPane{{PaneID: "w1:p1", Session: "held", Title: "Déjà un dossier"}, {PaneID: "w1:p2", Session: "free", Title: "Libre", Cwd: "/code/smtp-bridge"}}
+	}
+	m := &model{roots: store.Discover(root)}
+	m.reload()
+	var agents []string
+	for i, r := range m.rows {
+		if r.agent != nil {
+			agents = append(agents, r.agent.Title)
+			m.cursor = i
+		}
+	}
+	if strings.Join(agents, ",") != "Libre" {
+		t.Fatalf("agents %v", agents)
+	}
+	if !strings.Contains(m.rowView(m.rows[m.cursor], false, 80), "Libre") {
+		t.Fatal("the agent row renders empty")
+	}
+	if m.key("x"); !m.statusErr {
+		t.Fatal("x on an agent should be refused")
+	}
+	if m.key("+"); m.ask == nil || m.ask.fields[0].value != "Libre" {
+		t.Fatal("+ should open the adopt form with the pane's title")
+	}
+}
+
+func TestGmailKeysAndGSequences(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	a := &app.App{S: s}
+	a.Open(app.OpenParams{Title: "Ouvert", NoStart: true})
+	a.Open(app.OpenParams{Title: "Calme", NoStart: true})
+	d, _ := a.Load("2")
+	a.Park(d, "")
+	m := &model{roots: store.Discover(root)}
+	m.reload()
+	m.key("G")
+	m.key("g")
+	m.key("g")
+	if r := m.selected(); r == nil || !r.desk {
+		t.Fatal("gg should reach the first row, the desk")
+	}
+	m.key("G")
+	m.key("g")
+	m.key("d")
+	if r := m.selected(); r == nil || !r.desk {
+		t.Fatal("g d should reach the desk")
+	}
+	m.key("g")
+	m.key("t")
+	for _, r := range m.rows {
+		if r.d != nil && r.d.Title == "Calme" {
+			t.Fatal("g t should hide the dossier with no action")
+		}
+	}
+	m.key("c")
+	if m.ask == nil || m.ask.title != "New dossier" {
+		t.Fatal("c should open the new-dossier form")
+	}
+}

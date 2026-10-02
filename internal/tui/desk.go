@@ -138,7 +138,23 @@ func (m *model) deskView(r *row, w int, add func(...string)) {
 func legendView(w int, add func(...string)) {
 	section := func(name string) { add("", sSection.Render(name), "") }
 	item := func(mark, text string) { add(mark + "  " + sText.Render(truncate(text, w-4))) }
-	add(sTitle.Render("Legend") + sMuted.Render("  ·  ? closes it"))
+	add(sTitle.Render("Keys and legend") + sMuted.Render("  ·  ? closes it  ·  J K scroll"))
+
+	section("Keys, after Gmail and vim; the older key works too")
+	for _, kv := range [][2]string{
+		{"c  (+)", "new dossier; on an agent without dossier, adopt it"},
+		{"o  enter", "open the agent's pane; without a session, start it"},
+		{"e  (x)", "close"}, {"#  (D)", "delete"}, {"U  (m)", "mark unread"},
+		{"W  u", "wait, resume"}, {"n", "no action for now"},
+		{"s  R  N", "start without prompt, restart, new desk conversation"},
+		{"v", "side mode: agents open at the TUI's right"},
+		{"j k  gg G", "move, top, end"},
+		{"g d  (b)", "go to the desk"}, {"g i", "active dossiers"},
+		{"g t  (t)", "to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},
+		{"/  esc", "filter, clear"}, {"i  p  tab", "ingest now, priority order, detail panel"},
+	} {
+		add(sText.Render(fmt.Sprintf("%-11s", kv[0])) + sMuted.Render(truncate(kv[1], w-12)))
+	}
 
 	section("Agent, first mark of a row")
 	for _, a := range []struct{ act, text string }{

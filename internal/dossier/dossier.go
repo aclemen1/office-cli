@@ -55,6 +55,8 @@ type RunState struct {
 	TabID              string       `json:"tab_id,omitempty"`
 	Home               string       `json:"home,omitempty"`        // workspace to move the pane back to, while it is docked
 	Placeholder        string       `json:"placeholder,omitempty"` // pane whose place it took
+	Cwd                string       `json:"cwd,omitempty"`         // where an adopted session runs, instead of the dossier's directory
+	Adopted            bool         `json:"adopted,omitempty"`     // runs as the user started it: no dossier tools until restart
 	Prompts            int          `json:"prompts"`
 	Contexts           int          `json:"contexts"`
 	PendingTransitions []Transition `json:"pending_transitions"`

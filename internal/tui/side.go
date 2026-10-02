@@ -60,7 +60,7 @@ func (m *model) leaveSide() tea.Cmd {
 	m.docked, m.placeholder = docked{}, ""
 	return func() tea.Msg {
 		if prev.id != "" {
-			_ = exec.Command(dossierBin(), "undock", prev.id, "--store", prev.root, "--format", "text").Run()
+			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").Run()
 		}
 		if placeholder != "" {
 			_ = exec.Command("herdr", "pane", "close", placeholder).Run()
@@ -83,7 +83,7 @@ func (m *model) dock(r *row) tea.Cmd {
 	m.status, m.statusErr = r.d.Label()+": docking its agent…", false
 	return func() tea.Msg {
 		if prev.id != "" {
-			if out, err := exec.Command(dossierBin(), "undock", prev.id, "--store", prev.root, "--format", "text").CombinedOutput(); err != nil {
+			if out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").CombinedOutput(); err != nil {
 				return doneMsg{id: prev.id, verb: "undock", out: strings.TrimSpace(string(out)), err: err}
 			}
 		}
@@ -120,7 +120,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	}
 	i := m.offset + msg.Y - listTop
-	if msg.Y < listTop || msg.Y-listTop >= m.listHeight() || i >= len(m.rows) || m.rows[i].d == nil {
+	if msg.Y < listTop || msg.Y-listTop >= m.listHeight() || i >= len(m.rows) || !m.rows[i].selectable() {
 		return nil
 	}
 	if i != m.cursor {

@@ -94,7 +94,7 @@ func (p *placeholder) giveBack() {
 		return
 	}
 	h := p.holder
-	if out, err := exec.Command(dossierBin(), "undock", h.d.ID, "--store", h.root, "--format", "text").CombinedOutput(); err != nil {
+	if out, err := exec.Command(dossierBin(), "undock", h.d.ID, "--placeholder", p.self, "--store", h.root, "--format", "text").CombinedOutput(); err != nil {
 		p.note = firstLine(string(out), err.Error())
 		return
 	}

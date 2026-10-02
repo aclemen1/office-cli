@@ -38,6 +38,7 @@ store's prefix: P-0042 and U-0042 are in different stores.
 | Nothing to do for now | `dossier park <id> --note "…"` |
 | Show its session to the user | `dossier attach <id>` |
 | Open the store's desk (a lasting session, no state) | `dossier desk` |
+| Turn this agent's conversation into a new dossier (run inside its herdr pane) | `dossier adopt --title "…" --store <root>` |
 
 ## Rules
 

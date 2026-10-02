@@ -466,11 +466,6 @@ func (a *App) renderPrompt(d *dossier.Dossier, kind, instruction string, summary
 // ---------------------------------------------------------------- sessions
 
 func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
-	// herdr-acp takes the pane's current tab as the session's own: it renames
-	// it and closes it with the session. A docked pane goes home first.
-	if err := a.Undock(d); err != nil {
-		return nil, err
-	}
 	if IsDesk(d) {
 		if err := a.ensureDesk(d); err != nil {
 			return nil, err
@@ -486,7 +481,15 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 	}
 	args := append([]string{}, cfg.Agent.Args...)
 	args = append(args, "--name", d.ID, "--settings", settings)
-	for _, dir := range cfg.Agent.AddDirs {
+	addDirs := append([]string{}, cfg.Agent.AddDirs...)
+	cwd := d.Dir
+	if d.Run.Cwd != "" {
+		// An adopted conversation lives under its own directory; the store's
+		// charter reaches it as an added directory.
+		cwd = d.Run.Cwd
+		addDirs = append(addDirs, a.S.Root)
+	}
+	for _, dir := range addDirs {
 		args = append(args, "--add-dir", store.ExpandHome(dir))
 	}
 	if cfg.Agent.RemoteControl {
@@ -496,7 +499,7 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 	for k, v := range cfg.ACP.Env {
 		env[k] = store.ExpandHome(v)
 	}
-	if len(cfg.Agent.AddDirs) > 0 {
+	if len(addDirs) > 0 {
 		env["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"] = "1"
 	}
 	env["DOSSIER_ID"] = d.ID
@@ -520,7 +523,7 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 		meta[k] = v
 	}
 	meta["tabLabel"] = TabLabel(d)
-	return acp.Start(acp.Options{Command: cmd, AgentArgs: args, Env: env, Meta: meta, Cwd: d.Dir, MCP: mcp})
+	return acp.Start(acp.Options{Command: cmd, AgentArgs: args, Env: env, Meta: meta, Cwd: cwd, MCP: mcp})
 }
 
 var (
@@ -556,11 +559,21 @@ func (a *App) sendPrompt(d *dossier.Dossier, text string) error {
 		d.Run.Session, d.Run.PaneID, d.Run.TabID = sid, pl.PaneID, pl.TabID
 		_ = d.Log("session %s started in tab %s", sid, pl.TabID)
 	} else {
+		if !paneAlive(d.Run.PaneID) {
+			d.Run.Adopted = false // the ACP server starts it, with the dossier's tools
+			if err := a.Undock(d); err != nil {
+				return err
+			}
+		}
 		pl, err := c.LoadSession(d.Run.Session)
 		if err != nil {
 			return err
 		}
-		d.Run.PaneID, d.Run.TabID = pl.PaneID, pl.TabID
+		d.Run.PaneID = pl.PaneID
+		// A docked pane stays where it is: the tab it sits in is not its own.
+		if d.Run.Home == "" {
+			d.Run.TabID = pl.TabID
+		}
 	}
 	if err := d.Save(); err != nil {
 		return err
@@ -630,6 +643,9 @@ func (a *App) startSilent(d *dossier.Dossier) error {
 
 // resume loads the dossier's session into a new tab, without a prompt.
 func (a *App) resume(d *dossier.Dossier) error {
+	if err := a.Undock(d); err != nil {
+		return err
+	}
 	c, err := a.client(d)
 	if err != nil {
 		return err
@@ -639,7 +655,7 @@ func (a *App) resume(d *dossier.Dossier) error {
 	if err != nil {
 		return err
 	}
-	d.Run.PaneID, d.Run.TabID = pl.PaneID, pl.TabID
+	d.Run.PaneID, d.Run.TabID, d.Run.Adopted = pl.PaneID, pl.TabID, false
 	if err := d.Save(); err != nil {
 		return err
 	}
@@ -778,6 +794,9 @@ func (a *App) Restart(d *dossier.Dossier) error {
 	if d.Run.Session == "" {
 		return spec.UserError("%s has no session yet. Start one with `dossier attach %s`", d.ID, d.ID)
 	}
+	if d.Run.Adopted && paneAlive(d.Run.PaneID) {
+		return a.takeOver(d)
+	}
 	if a.S.Config.ClosesTabOn(d.State) && !paneAlive(d.Run.PaneID) {
 		// Its tab stays closed in this state; the next wake starts the current binary anyway.
 		return nil
@@ -847,6 +866,10 @@ func (a *App) CloseTab(d *dossier.Dossier) error {
 func (a *App) closeSession(d *dossier.Dossier) error {
 	if d.Run.Session == "" || !paneAlive(d.Run.PaneID) {
 		return nil
+	}
+	// Closed in place, a docked pane would leave a hole where the placeholder was.
+	if err := a.Undock(d); err != nil {
+		return err
 	}
 	c, err := a.client(d)
 	if err != nil {

@@ -138,6 +138,36 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
+		Category: "dossier", Name: "adopt", Summary: "Make a new dossier of a Claude Code agent you started in a herdr pane: its conversation becomes the dossier's session.",
+		Discussion: "The agent keeps running where it is, in its own directory, and receives the dossier's prompts. It gets the " +
+			"dossier tools at its first `dossier restart`, which ends it once its turn is over and resumes its conversation through " +
+			"the ACP server. Inside the agent's pane, --pane defaults to $HERDR_PANE_ID: an agent can adopt itself.",
+		Params: []spec.Param{
+			{Name: "pane", Kind: spec.String, Help: "herdr pane of the agent. Defaults to $HERDR_PANE_ID."},
+			{Name: "title", Kind: spec.String, Help: "Title of the dossier. Defaults to the pane's title."},
+			{Name: "instruction", Kind: spec.String, Help: "What the dossier is about."},
+			{Name: "in", Kind: spec.StringList, Help: "Dossier (alias or id) that includes the new one (repeatable)."},
+		},
+		Effects: []string{"Creates <store>/NNNN-<slug>/ whose session is the agent's, with source herdr:session/<id>.",
+			"Copies the conversation so far into transcript.jsonl; sends no prompt."},
+		Examples: []string{`dossier adopt --pane w5:p3 --title "rstudio-cli : paquet d'aide" --in U-0032 --store ~/dossiers/pro`,
+			`dossier adopt --title "Relais SMTP" --store ~/dossiers/pro`},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				pane := ctx.Str("pane")
+				if pane == "" {
+					pane = os.Getenv("HERDR_PANE_ID")
+				}
+				return a.Adopt(app.AdoptParams{Pane: pane, Title: ctx.Str("title"), Instruction: ctx.Str("instruction"), In: ctx.List("in")})
+			})
+		},
+		Text: func(w io.Writer, r any) {
+			o := r.(app.OpenResult)
+			fmt.Fprintf(w, "%s %s · %s · session %s\n", o.ID, o.Outcome, o.Dir, o.Session)
+		},
+	})
+
+	spec.Register(&spec.Action{
 		Category: "dossier", Name: "dock", Summary: "Show a dossier's agent in place of a placeholder pane, e.g. the one at the TUI's right.",
 		Discussion: "The placeholder waits in a tab of its own; `dossier undock` gives it its place back and moves the agent to its " +
 			"home workspace, and so does any session start, prompt, restart or close, since the ACP server treats the pane's " +
@@ -162,7 +192,8 @@ func init() {
 	})
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "undock", Summary: "Move a docked agent pane back to a tab of its own.",
-		Params:   []spec.Param{idParam("Dossier id, or desk.")},
+		Params: []spec.Param{idParam("Dossier id, or desk."),
+			{Name: "placeholder", Kind: spec.String, Help: "Only when the agent holds this placeholder's place; otherwise nothing."}},
 		Effects:  []string{"Moves the pane into a new tab of its home workspace, labelled like the dossier; nothing when it is not docked."},
 		Examples: []string{"dossier undock U-0033"},
 		Run: func(ctx *spec.Context) (any, error) {
@@ -170,6 +201,10 @@ func init() {
 				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
+				}
+				// A TUI sends home only the agent that holds its own placeholder's place.
+				if p := ctx.Str("placeholder"); p != "" && d.Run.Placeholder != p {
+					return map[string]any{"id": d.ID, "tab_id": d.Run.TabID, "skipped": "not in place of " + p}, nil
 				}
 				if err := a.Undock(d); err != nil {
 					return nil, err

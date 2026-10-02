@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 	"github.com/aclemen1/dossier-cli/internal/spec"
@@ -101,6 +102,12 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string) error {
 	if placeholder == "" {
 		return spec.UserError("dock needs the placeholder pane the agent takes the place of, e.g. --placeholder w5:p8")
 	}
+	// Docked in another placeholder's place, e.g. by another TUI: give that place back first.
+	if d.Run.Home != "" && d.Run.Placeholder != placeholder {
+		if err := a.Undock(d); err != nil {
+			return err
+		}
+	}
 	if err := a.ensureRunning(d, false); err != nil {
 		return err
 	}
@@ -121,6 +128,7 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string) error {
 			return err
 		}
 		d.Run.PaneID = paneNow
+		redraw(paneNow)
 		d.Run.Home, d.Run.Placeholder, d.Run.TabID = own.WorkspaceID, placeholderNow, ""
 		_ = d.Log("pane docked in place of %s", placeholder)
 	}
@@ -152,6 +160,7 @@ func (a *App) Undock(d *dossier.Dossier) error {
 			return err
 		}
 		d.Run.PaneID, d.Run.TabID = paneNow, tab
+		redraw(paneNow)
 		_ = d.Log("pane undocked to tab %s", tab)
 	}
 	d.Run.Home, d.Run.Placeholder = "", ""
@@ -172,4 +181,11 @@ func paneCount(tab string) int {
 	}
 	_ = json.Unmarshal(out, &r)
 	return r.Result.Tab.PaneCount
+}
+
+// redraw asks the agent to repaint: on its way, the pane passed through half
+// the height, and Claude Code does not repaint what it drew then.
+func redraw(pane string) {
+	time.Sleep(300 * time.Millisecond)
+	_, _ = herdrCall("pane", "send-keys", pane, "ctrl+l")
 }

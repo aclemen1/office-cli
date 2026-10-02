@@ -52,6 +52,7 @@ type model struct {
 	typing      bool
 	detail      bool
 	legend      bool // the detail panel shows what marks and colours mean
+	gPending    bool // g was typed: the next key goes somewhere
 	side        bool // enter docks the agent at the TUI's right
 	placeholder string
 	docked      docked
@@ -81,8 +82,8 @@ func (m *model) selected() *row {
 
 func (m *model) reload() {
 	key := ""
-	if r := m.selected(); r != nil {
-		key = r.store.root + "|" + r.d.ID
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		key = m.rows[m.cursor].key()
 	}
 	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority})
 	m.waitW = 0
@@ -97,7 +98,7 @@ func (m *model) reload() {
 	}
 	m.cursor = -1
 	for i, r := range m.rows {
-		if r.d != nil && r.store.root+"|"+r.d.ID == key {
+		if r.selectable() && r.key() == key {
 			m.cursor = i
 			break
 		}
@@ -110,10 +111,10 @@ func (m *model) reload() {
 	}
 }
 
-// move steps the cursor over dossier rows, skipping headers and spacers.
+// move steps the cursor over dossier and agent rows, skipping headers and spacers.
 func (m *model) move(step int) {
 	for i := m.cursor + step; i >= 0 && i < len(m.rows); i += step {
-		if m.rows[i].d != nil {
+		if m.rows[i].selectable() {
 			if i != m.cursor {
 				m.scroll = 0
 			}
@@ -228,8 +229,57 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// aliases maps the Gmail-style keys onto the TUI's own.
+var aliases = map[string]string{"c": "+", "e": "x", "#": "D", "U": "m", "o": "enter"}
+
+// goTo handles the second key of a g sequence, as in Gmail: g d the desk,
+// g i the active dossiers, g t to do, g w by person, g a all; gg the top.
+func (m *model) goTo(k string) {
+	m.offset = 0
+	switch k {
+	case "g":
+		m.cursor = -1
+		m.move(1)
+		return
+	case "d":
+		m.toDesk()
+		return
+	case "i":
+		m.todo, m.all, m.byPerson = false, false, false
+	case "t":
+		m.todo, m.all, m.byPerson = true, false, false
+	case "w":
+		m.todo, m.all, m.byPerson = false, false, true
+	case "a":
+		m.todo, m.all, m.byPerson = false, true, false
+	default:
+		m.status, m.statusErr = "g "+k+": unknown; g then g, d, i, t, w or a", true
+		return
+	}
+	m.reload()
+}
+
 func (m *model) key(k string) tea.Cmd {
+	if m.gPending {
+		m.gPending = false
+		m.status = ""
+		m.goTo(k)
+		return nil
+	}
+	if k == "g" {
+		m.gPending = true
+		m.status, m.statusErr = "g…  g top · d desk · i active · t to do · w by person · a all", false
+		return nil
+	}
+	if to, ok := aliases[k]; ok {
+		k = to
+	}
 	r := m.selected()
+	if ag := m.selectedAgent(); ag != nil {
+		if cmd, handled := m.agentKey(k, ag); handled {
+			return cmd
+		}
+	}
 	if m.side && r != nil && (k == "enter" || (r.desk && (k == "s" || k == "o"))) {
 		return m.dock(r)
 	}
@@ -263,8 +313,8 @@ func (m *model) key(k string) tea.Cmd {
 		for i := 0; i < m.listHeight()/2; i++ {
 			m.move(1)
 		}
-	case "g", "home":
-		m.cursor = 0
+	case "home":
+		m.cursor = -1
 		m.move(1)
 	case "G", "end":
 		m.cursor = len(m.rows)
@@ -306,10 +356,10 @@ func (m *model) key(k string) tea.Cmd {
 			break
 		}
 		if r.activity == "none" {
-			m.status, m.statusErr = r.d.Label()+" has no session yet: s starts one without a prompt, o with its open prompt", true
-			break
+			m.status, m.statusErr = r.d.Label()+": starting its session with the open prompt…", false
+		} else {
+			m.status, m.statusErr = r.d.Label()+": opening its pane…", false
 		}
-		m.status, m.statusErr = r.d.Label()+": opening its pane…", false
 		return run(r.store.root, r.d.ID, "attach")
 	case "s":
 		if r == nil {
@@ -317,16 +367,6 @@ func (m *model) key(k string) tea.Cmd {
 		}
 		m.status, m.statusErr = r.d.Label()+": starting its session, no prompt…", false
 		return run(r.store.root, r.d.ID, "attach", "--no-prompt")
-	case "o":
-		if r == nil {
-			break
-		}
-		if r.activity != "none" {
-			m.status, m.statusErr = r.d.Label()+" already has a session: enter opens it", true
-			break
-		}
-		m.status, m.statusErr = r.d.Label()+": starting its session with the open prompt…", false
-		return run(r.store.root, r.d.ID, "attach")
 	case "+":
 		m.newDossier(r)
 	case "W", "u", "x", "D":
@@ -555,10 +595,10 @@ func (m *model) bottomBar() string {
 		}
 		return strings.Join(parts, sFaint.Render("  ·  "))
 	}
-	line := keyLine([][2]string{{"+", "new"}, {"enter", "pane"}, {"W", "wait"}, {"u", "resume"}, {"x", "close"}, {"D", "delete"}, {"n", "no action"}, {"m", "unread"},
-		{"s", "start"}, {"o", "start + prompt"}, {"R", "restart"}}) + "\n" +
-		keyLine([][2]string{{"↑↓", "move"}, {"b", "desk"}, {"J K", "scroll"}, {"i", "ingest now"}, {"t", "to do"}, {"w", "by person"}, {"a", "all"},
-			{"p", "priority"}, {"/", "filter"}, {"tab", "detail"}, {"v", "side"}, {"?", "legend"}, {"q", "quit"}})
+	line := keyLine([][2]string{{"c", "new"}, {"o", "open"}, {"e", "close"}, {"W", "wait"}, {"u", "resume"}, {"#", "delete"}, {"n", "no action"}, {"U", "unread"},
+		{"s", "start"}, {"R", "restart"}, {"v", "side"}}) + "\n" +
+		keyLine([][2]string{{"j k", "move"}, {"gg G", "top, end"}, {"g d", "desk"}, {"g i", "active"}, {"g t", "to do"}, {"g w", "by person"}, {"g a", "all"},
+			{"/", "filter"}, {"i", "ingest"}, {"p", "priority"}, {"tab", "detail"}, {"?", "keys"}, {"q", "quit"}})
 	if len(m.errs) > 0 {
 		line = lipgloss.NewStyle().Foreground(cStopped).Render(m.errs[0])
 	}
@@ -587,8 +627,8 @@ func (m *model) listView(w, h int) string {
 	for i := m.offset; i < len(m.rows) && len(lines) < h; i++ {
 		lines = append(lines, m.rowView(m.rows[i], i == m.cursor, w))
 	}
-	if m.selected() == nil {
-		lines = append(lines, "", sMuted.Render("   nothing to show: a shows every state, esc clears the filter"))
+	if m.cursor < 0 || m.cursor >= len(m.rows) || !m.rows[m.cursor].selectable() {
+		lines = append(lines, "", sMuted.Render("   nothing to show: g a shows every state, esc clears the filter"))
 	}
 	for len(lines) < h {
 		lines = append(lines, "")
@@ -609,6 +649,12 @@ func (m *model) rowView(r row, sel bool, w int) string {
 	}
 	if r.desk {
 		return m.deskHeader(r, sel, w)
+	}
+	if r.agent != nil {
+		return m.agentRowView(r, sel, w)
+	}
+	if r.header != "" && r.store == nil {
+		return " " + sTitle.Render(strings.ToUpper(r.header))
 	}
 	if r.header != "" {
 		return " " + sTitle.Render(strings.ToUpper(r.header)) + sFaint.Render("  "+r.store.root)
@@ -759,6 +805,9 @@ func (m *model) detailView(w, h int) string {
 	switch {
 	case m.legend:
 		legendView(w, add)
+		return m.window(lines, h)
+	case r == nil && m.selectedAgent() != nil:
+		agentView(&m.rows[m.cursor], w, add)
 		return m.window(lines, h)
 	case r == nil:
 		return sMuted.Render("No dossier selected.")
