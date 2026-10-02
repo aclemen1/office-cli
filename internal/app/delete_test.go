@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 )
@@ -40,4 +41,41 @@ func TestDeleteWithdrawsTheSignalAndDropsTheLinks(t *testing.T) {
 	if _, err := f.a.Load("1"); err == nil {
 		t.Fatal("the deleted dossier still loads")
 	}
+}
+
+func TestUnreadFollowsMeaningfulChangesAndPaneVisits(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Ancien", NoStart: true})
+	if LoadSeen(f.a).Unread(f.a, mustGet(t, f, "1")) {
+		t.Fatal("the first load should count existing dossiers as seen")
+	}
+	f.a.Open(OpenParams{Title: "Nouveau", NoStart: true})
+	if !LoadSeen(f.a).Unread(f.a, mustGet(t, f, "2")) {
+		t.Fatal("a new dossier is unread")
+	}
+	d := mustGet(t, f, "2")
+	f.a.MarkSeen(d)
+	time.Sleep(1100 * time.Millisecond)
+	_ = d.Log("session restarted in tab x")
+	if LoadSeen(f.a).Unread(f.a, d) {
+		t.Fatal("a housekeeping line is no news")
+	}
+	_ = d.Log("from U-0008: décidé")
+	if !LoadSeen(f.a).Unread(f.a, d) {
+		t.Fatal("a notify is news")
+	}
+	f.a.MarkSeen(d)
+	f.a.MarkUnread(d)
+	if !LoadSeen(f.a).Unread(f.a, d) {
+		t.Fatal("marked unread")
+	}
+}
+
+func mustGet(t *testing.T, f *fixture, id string) *dossier.Dossier {
+	t.Helper()
+	d, err := f.a.Load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }

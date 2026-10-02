@@ -51,6 +51,8 @@ type model struct {
 	filter     string
 	typing     bool
 	detail     bool
+	legend     bool // the detail panel shows what marks and colours mean
+	convs      map[string]convAt
 	status     string
 	statusErr  bool
 }
@@ -192,9 +194,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status, m.statusErr = msg.id+": "+firstLine(msg.out, msg.err.Error()), true
 		case msg.verb == "restart":
 			m.status, m.statusErr = msg.id+": session restarted, no prompt sent", false
-		case msg.verb == "park" || msg.verb == "unpark":
+		case msg.verb == "park" || msg.verb == "unpark" || msg.verb == "unread":
 		case msg.verb == "attach":
 			m.status, m.statusErr = msg.id+": pane focused", false
+		case msg.verb == "desk":
+			m.status, m.statusErr = "desk: fresh conversation started, the previous one is archived", false
 		default:
 			m.status, m.statusErr = firstLine(msg.out, msg.id+": done"), false
 		}
@@ -217,7 +221,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) key(k string) tea.Cmd {
 	r := m.selected()
+	if r != nil && r.desk {
+		if cmd, handled := m.deskKey(k, r); handled {
+			return cmd
+		}
+	}
 	switch k {
+	case "b":
+		m.toDesk()
+	case "?":
+		m.legend = !m.legend
+		m.scroll = 0
 	case "q", "ctrl+c":
 		return tea.Quit
 	case "up", "k":
@@ -312,6 +326,11 @@ func (m *model) key(k string) tea.Cmd {
 		}
 		m.status, m.statusErr = r.d.Label()+say, false
 		return run(r.store.root, r.d.ID, verb)
+	case "m":
+		if r != nil && !r.unread {
+			m.status, m.statusErr = r.d.Label()+" marked unread", false
+			return run(r.store.root, r.d.ID, "unread")
+		}
 	case "R":
 		if r == nil {
 			break
@@ -447,7 +466,7 @@ func (m *model) View() string {
 		list := m.listView(lw, h)
 		det := sPanel.Width(dw - 2).Height(h - 2).Render(m.detailView(dw-8, h-4))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", det)
-	case m.detail:
+	case m.detail || m.legend:
 		body = sPanel.Width(m.width - 4).Height(h - 2).Render(m.detailView(m.width-10, h-4))
 	default:
 		body = m.listView(m.width, h)
@@ -480,7 +499,18 @@ func (m *model) topBar() string {
 	if m.byPerson {
 		scope = "waiting, by person"
 	}
+	unread := 0
+	counted := map[string]bool{}
+	for _, r := range m.rows {
+		if r.d != nil && r.unread && !counted[r.store.root+r.d.ID] {
+			counted[r.store.root+r.d.ID] = true
+			unread++
+		}
+	}
 	left := sTitle.Render("dossier") + sMuted.Render("  ·  "+scope+"  ·  ") + strings.Join(parts, sFaint.Render("   │   "))
+	if unread > 0 {
+		left += sFaint.Render("   │   ") + lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render(fmt.Sprintf("• %d unread", unread))
+	}
 	if m.filter != "" || m.typing {
 		cur := ""
 		if m.typing {
@@ -505,10 +535,10 @@ func (m *model) bottomBar() string {
 		}
 		return strings.Join(parts, sFaint.Render("  ·  "))
 	}
-	line := keyLine([][2]string{{"+", "new"}, {"enter", "pane"}, {"W", "wait"}, {"u", "resume"}, {"x", "close"}, {"D", "delete"}, {"n", "no action"},
+	line := keyLine([][2]string{{"+", "new"}, {"enter", "pane"}, {"W", "wait"}, {"u", "resume"}, {"x", "close"}, {"D", "delete"}, {"n", "no action"}, {"m", "unread"},
 		{"s", "start"}, {"o", "start + prompt"}, {"R", "restart"}}) + "\n" +
-		keyLine([][2]string{{"↑↓", "move"}, {"J K", "scroll"}, {"i", "ingest now"}, {"t", "to do"}, {"w", "by person"}, {"a", "all"},
-			{"p", "priority"}, {"/", "filter"}, {"tab", "detail"}, {"q", "quit"}})
+		keyLine([][2]string{{"↑↓", "move"}, {"b", "desk"}, {"J K", "scroll"}, {"i", "ingest now"}, {"t", "to do"}, {"w", "by person"}, {"a", "all"},
+			{"p", "priority"}, {"/", "filter"}, {"tab", "detail"}, {"?", "legend"}, {"q", "quit"}})
 	if len(m.errs) > 0 {
 		line = lipgloss.NewStyle().Foreground(cStopped).Render(m.errs[0])
 	}
@@ -557,6 +587,9 @@ func (m *model) rowView(r row, sel bool, w int) string {
 		}
 		return " " + lipgloss.NewStyle().Bold(true).Foreground(cWaiting).Render("⏳ "+r.header) + sMuted.Render("  "+n)
 	}
+	if r.desk {
+		return m.deskHeader(r, sel, w)
+	}
 	if r.header != "" {
 		return " " + sTitle.Render(strings.ToUpper(r.header)) + sFaint.Render("  "+r.store.root)
 	}
@@ -580,7 +613,11 @@ func (m *model) rowView(r row, sel bool, w int) string {
 		state = sFaint.Render(fmt.Sprintf("%-9s", "no action"))
 	}
 	label := sBold.Render(fmt.Sprintf("%-7s", d.Label()))
-	prefix := "   " + activityMark(r.activity) + "  " + label + "  " + state + " " + m.waitCell(d) + sFaint.Render(tree.String())
+	dot := " "
+	if r.unread {
+		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
+	}
+	prefix := " " + dot + " " + activityMark(r.activity) + "  " + label + "  " + state + " " + m.waitCell(d) + sFaint.Render(tree.String())
 	var tail []string
 	if r.cycle {
 		tail = append(tail, "↻ cycle")
@@ -593,7 +630,11 @@ func (m *model) rowView(r row, sel bool, w int) string {
 		suffix = "   " + strings.Join(tail, "   ")
 	}
 	room := w - lipgloss.Width(prefix) - lipgloss.Width(suffix) - 2
-	line := prefix + sText.Render(truncate(d.Title, room)) + sMuted.Render(suffix)
+	title := sText.Render(truncate(d.Title, room))
+	if r.unread {
+		title = sBold.Render(truncate(d.Title, room))
+	}
+	line := prefix + title + sMuted.Render(suffix)
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {
 		st = st.Background(cSelBg)
@@ -689,16 +730,23 @@ func ago(t time.Time) string {
 
 func (m *model) detailView(w, h int) string {
 	r := m.selected()
-	if r == nil {
-		return sMuted.Render("No dossier selected.")
-	}
-	d := r.d
 	var lines []string
 	add := func(s ...string) {
 		for _, x := range s {
 			lines = append(lines, strings.Split(x, "\n")...)
 		}
 	}
+	switch {
+	case m.legend:
+		legendView(w, add)
+		return m.window(lines, h)
+	case r == nil:
+		return sMuted.Render("No dossier selected.")
+	case r.desk:
+		m.deskView(r, w, add)
+		return m.window(lines, h)
+	}
+	d := r.d
 	wrap := lipgloss.NewStyle().Width(w)
 	label := lipgloss.NewStyle().Foreground(cMuted).Width(12)
 	field := func(name, value string) { add(label.Render(name) + value) }
@@ -796,6 +844,11 @@ func (m *model) detailView(w, h int) string {
 		}
 	}
 
+	return m.window(lines, h)
+}
+
+// window shows the detail lines from the scroll position.
+func (m *model) window(lines []string, h int) string {
 	if max := len(lines) - h; m.scroll > max {
 		m.scroll = max
 	}

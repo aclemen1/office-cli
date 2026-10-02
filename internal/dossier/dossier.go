@@ -22,6 +22,8 @@ const (
 	Waiting = "waiting"
 	Done    = "done"
 	Merged  = "merged"
+	// Desk is the state of a store's desk: a session without an affair, never closed.
+	Desk = "desk"
 )
 
 type Source struct {

@@ -7,9 +7,10 @@
 Signals are yellow stars: every starred thread on the first poll, then the stars
 added since (Gmail history). A Google Task linked to the email (Shift-T) is
 optional: its notes become the instruction, and its message gets a star if the
-thread has none. A new star counts only if it is still in place config.settle
-later (e.g. "30s"; the poll waits that long), so that cycling through the stars
-in Gmail opens nothing; a poll with "now" takes it at once. Events are new replies, or a task added to a thread that
+thread has none. A new star or task counts only as it stands config.settle later
+(e.g. "30s"; the poll waits that long and reads again), so that cycling through
+the stars, or moving a task to another list, opens nothing on the way; a poll
+with "now" takes them at once. Events are new replies, or a task added to a thread that
 already has its dossier. Transitions move the star: yellow (open), purple (waiting),
 none plus the "reviewed" label and the task checked (done).
 
@@ -308,20 +309,9 @@ def parse_cursor(c):
         return {}
 
 
-def poll(inp):
-    cfg = inp.get("config") or {}
-    lists = tasklists(cfg)
-    dry = bool(inp.get("dry_run"))
-    cur = parse_cursor(inp.get("cursor"))
-    watch = set(inp.get("watch") or [])
-    started = now_rfc3339()
-    profile = gws("gmail", "users", "getProfile", params={"userId": "me", "fields": "historyId,emailAddress"})
-    history_now, me = profile["historyId"], profile.get("emailAddress", "").lower()
-    tmpdir = tempfile.mkdtemp(prefix="dossier-gmail-")
-
-    # 1. Shift-T tasks: their notes are instructions, their list may name a
-    # dossier that includes it; an unstarred message gets its star.
-    instructions, task_titles, task_threads, holders = {}, {}, {}, {}
+def read_tasks(lists, cur):
+    """Open Shift-T tasks by thread: their note, title, message and the dossiers their list names."""
+    out = {"instructions": {}, "titles": {}, "threads": {}, "holders": {}}
     known = set(cur.get("lists") or [])
     for tasklist, holder in lists.items():
         # A list read for the first time is read whole, whatever the cursor says.
@@ -334,14 +324,31 @@ def poll(inp):
                 continue
             tid = gws("gmail", "users", "messages", "get",
                       params={"userId": "me", "id": mid, "format": "minimal", "fields": "threadId"})["threadId"]
-            task_threads[tid] = mid
-            task_titles.setdefault(tid, task.get("title") or "")
+            out["threads"][tid] = mid
+            out["titles"].setdefault(tid, task.get("title") or "")
             if holder:
-                holders.setdefault(tid, set()).add(holder)
+                out["holders"].setdefault(tid, set()).add(holder)
             if (task.get("notes") or "").strip():
-                instructions[tid] = task["notes"].strip()
-            if not any(STARRED in labels for _, labels in thread_labels(tid)) and not dry:
-                modify(mid, add=[STARRED, YELLOW])
+                out["instructions"][tid] = task["notes"].strip()
+    return out
+
+
+def poll(inp):
+    cfg = inp.get("config") or {}
+    lists = tasklists(cfg)
+    dry = bool(inp.get("dry_run"))
+    cur = parse_cursor(inp.get("cursor"))
+    watch = set(inp.get("watch") or [])
+    started = now_rfc3339()
+    profile = gws("gmail", "users", "getProfile", params={"userId": "me", "fields": "historyId,emailAddress"})
+    history_now, me = profile["historyId"], profile.get("emailAddress", "").lower()
+    tmpdir = tempfile.mkdtemp(prefix="dossier-gmail-")
+
+    settle = 0 if inp.get("now") else seconds(cfg.get("settle"))
+
+    # 1. Shift-T tasks: their notes are instructions, their list may name a
+    # dossier that includes it.
+    tasks = read_tasks(lists, cur)
 
     # 2. Yellow stars: every starred thread on the first poll, new stars afterwards.
     candidates = None
@@ -349,9 +356,20 @@ def poll(inp):
         candidates = starred_since(cur["history"])
     if candidates is None:
         candidates = starred_threads()
+
+    # A new star or task must still be in place after the settle delay: going
+    # through the yellow star, or moving a task to another list, opens nothing
+    # on the way. The tasks are read again after the wait.
+    fresh = tasks["threads"] or any(f"gmail:thread/{tid}" not in watch for tid in candidates)
+    if settle and fresh:
+        time.sleep(settle)
+        tasks = read_tasks(lists, cur)
+    instructions, task_titles, task_threads, holders = tasks["instructions"], tasks["titles"], tasks["threads"], tasks["holders"]
     for tid, mid in task_threads.items():
         candidates.setdefault(tid, mid)
-    settle = 0 if inp.get("now") else seconds(cfg.get("settle"))
+        # A task without a star gets one: the star is the signal.
+        if not dry and not any(STARRED in labels for _, labels in thread_labels(tid)):
+            modify(mid, add=[STARRED, YELLOW])
 
     signals, events, starred = [], [], []
     for tid, mid in candidates.items():
@@ -366,13 +384,6 @@ def poll(inp):
             continue
         if tid in task_threads or any(yellow(l) for _, l in thread_labels(tid)):
             starred.append((tid, mid))
-
-    # A star must still be there after the settle delay: going through the
-    # yellow star on the way to another one opens nothing. A task is deliberate.
-    if settle and any(tid not in task_threads for tid, _ in starred):
-        time.sleep(settle)
-        starred = [(tid, mid) for tid, mid in starred
-                   if tid in task_threads or any(yellow(l) for _, l in thread_labels(tid))]
 
     for tid, mid in starred:
         ref = f"gmail:thread/{tid}"

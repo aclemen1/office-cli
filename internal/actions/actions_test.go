@@ -281,3 +281,28 @@ func TestMCPWaitsAndResumesAnotherDossier(t *testing.T) {
 		t.Fatalf("wait on any dossier of the store: %v", env)
 	}
 }
+
+func TestMCPOnTheDeskNamesItsDossier(t *testing.T) {
+	required := func(name string, desk bool) []string {
+		for _, tl := range tools {
+			if tl.name == name {
+				r, _ := tl.schema(desk)["required"].([]string)
+				return r
+			}
+		}
+		t.Fatalf("no tool %s", name)
+		return nil
+	}
+	if r := required("wait", true); !contains(r, "id") {
+		t.Fatalf("on the desk, wait needs an id: %v", r)
+	}
+	if r := required("wait", false); contains(r, "id") {
+		t.Fatalf("in a dossier, wait defaults to it: %v", r)
+	}
+	if r := required("notify", true); contains(r, "from") {
+		t.Fatalf("the desk notifies as itself: %v", r)
+	}
+	if r := required("open", true); contains(r, "in") {
+		t.Fatalf("a dossier opened from the desk stands alone: %v", r)
+	}
+}

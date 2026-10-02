@@ -88,6 +88,24 @@ const gitignoreTemplate = `# dossier: version the Markdown, keep heavy files out
 !/*/files/*.md
 `
 
+// DeskCharter is written to <store>/desk/CLAUDE.md when the desk first starts.
+const DeskCharter = `# Desk of this store
+
+This session is the store's desk, not a dossier: it has no state, no sources,
+and it never closes. The store's charter (../CLAUDE.md) applies, except what it
+says about "your dossier": the desk has none, so name the dossier every tool
+acts on.
+
+- Answer questions about the dossiers: ` + "`dossier ls --format text`" + `, the
+  search, show, tree and grep tools.
+- A new affair: search first. If it has a dossier, notify it; otherwise open
+  one (it stands on its own unless you pass in).
+- Something for an existing dossier: notify it. Do not do a dossier's work
+  here: its own session does it.
+- wait, close, merge and delete act on a dossier only when the user asks, and
+  name it.
+`
+
 const charterTemplate = `# Dossiers ({{sphere}})
 
 Every agent session of this store reads this file. Say here where the memory of

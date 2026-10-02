@@ -23,8 +23,17 @@ type row struct {
 	last     []bool // per ancestor level: was that ancestor the last child
 	blocked  []string
 	cycle    bool // already shown above on this branch
+	unread   bool // changed since the user last opened its pane
 	person   bool // header of a waiting group
+	desk     bool // store header, carrying the store's desk in d
 	count    int
+}
+
+// deskRow is the store header: selectable, it stands for the store's desk.
+func deskRow(sv *storeView) row {
+	d := sv.a.Desk()
+	return row{header: sv.name, store: sv, d: d, desk: true, activity: app.Activity(d, sv.live),
+		unread: d.Run.Session != "" && sv.seen.Unread(sv.a, d)}
 }
 
 func (r row) spacer() bool { return r.d == nil && r.header == "" }
@@ -34,6 +43,7 @@ type storeView struct {
 	root  string
 	a     *app.App
 	all   []*dossier.Dossier
+	seen  app.Seen
 	live  map[string]string
 	byID  map[string]*dossier.Dossier
 	count map[string]int
@@ -74,6 +84,13 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 	var stores []*storeView
 	var errs []string
 	live := app.Panes()
+	var apps []*app.App
+	for _, root := range roots {
+		if s, err := store.Open(root); err == nil {
+			apps = append(apps, &app.App{S: s})
+		}
+	}
+	seen := app.LoadSeen(apps...)
 	for _, root := range roots {
 		s, err := store.Open(root)
 		if err != nil {
@@ -90,7 +107,7 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 		if name == "" {
 			name = filepath.Base(root)
 		}
-		sv := &storeView{name: name, root: root, a: a, all: ds, live: live, byID: map[string]*dossier.Dossier{}, count: map[string]int{}}
+		sv := &storeView{name: name, root: root, a: a, all: ds, live: live, seen: seen, byID: map[string]*dossier.Dossier{}, count: map[string]int{}}
 		stores = append(stores, sv)
 		for _, d := range ds {
 			sv.byID[d.ID] = d
@@ -102,11 +119,16 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 		if len(rows) > 0 {
 			rows = append(rows, row{})
 		}
-		rows = append(rows, row{header: name, store: sv})
+		rows = append(rows, deskRow(sv))
 		rows = append(rows, treeRows(sv, ds, live, v)...)
 	}
 	if byPerson {
-		rows = waitingRows(stores, filter)
+		for _, sv := range stores {
+			rows = append(rows, deskRow(sv))
+		}
+		if waiting := waitingRows(stores, filter); len(waiting) > 0 {
+			rows = append(append(rows, row{}), waiting...)
+		}
 	}
 	return rows, stores, errs
 }
@@ -134,7 +156,7 @@ func waitingRows(stores []*storeView, filter string) []row {
 				byName[key] = g
 				groups = append(groups, g)
 			}
-			g.rows = append(g.rows, row{store: sv, d: d, activity: app.Activity(d, sv.live), blocked: app.BlockedBy(d, sv.byID)})
+			g.rows = append(g.rows, row{store: sv, d: d, activity: app.Activity(d, sv.live), blocked: app.BlockedBy(d, sv.byID), unread: sv.seen.Unread(sv.a, d)})
 		}
 	}
 	for _, g := range groups {
@@ -235,7 +257,7 @@ func treeRows(sv *storeView, ds []*dossier.Dossier, live map[string]string, v vi
 	walk = func(id string, depth int, last []bool, path map[string]bool) {
 		d := idx[id]
 		out = append(out, row{store: sv, d: d, activity: app.Activity(d, live), depth: depth,
-			last: append([]bool{}, last...), blocked: app.BlockedBy(d, idx), cycle: path[id]})
+			last: append([]bool{}, last...), blocked: app.BlockedBy(d, idx), cycle: path[id], unread: sv.seen.Unread(sv.a, d)})
 		if path[id] {
 			return
 		}

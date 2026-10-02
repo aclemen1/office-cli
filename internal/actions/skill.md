@@ -37,6 +37,7 @@ store's prefix: P-0042 and U-0042 are in different stores.
 | Wait on someone outside | `dossier wait <id> --on "<who>" [--until 2026-10-15\|7d]` |
 | Nothing to do for now | `dossier park <id> --note "…"` |
 | Show its session to the user | `dossier attach <id>` |
+| Open the store's desk (a lasting session, no state) | `dossier desk` |
 
 ## Rules
 

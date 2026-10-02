@@ -52,7 +52,20 @@ func contains(l []string, s string) bool {
 	return false
 }
 
-func (t tool) schema() map[string]any {
+// selfFor lists the params that default to the session. On the desk, only
+// notify keeps its sender: every other tool names its dossier.
+func (t tool) selfFor(desk bool) []string {
+	if !desk {
+		return t.self
+	}
+	if t.name == "notify" {
+		return t.self
+	}
+	return nil
+}
+
+func (t tool) schema(desk bool) map[string]any {
+	selfs := t.selfFor(desk)
 	a := spec.FindVerb(t.action)
 	props := map[string]any{}
 	var required []string
@@ -65,7 +78,7 @@ func (t tool) schema() map[string]any {
 			name = r
 		}
 		help := p.Help
-		if contains(t.self, p.Name) {
+		if contains(selfs, p.Name) {
 			help = strings.TrimSuffix(strings.TrimSuffix(help, " Defaults to DOSSIER_ID."), ".") + ". Defaults to this session's dossier."
 		}
 		prop := map[string]any{"description": help}
@@ -85,7 +98,7 @@ func (t tool) schema() map[string]any {
 			prop["default"] = p.Default
 		}
 		props[name] = prop
-		if p.Required && !contains(t.self, p.Name) {
+		if (p.Required && !contains(selfs, p.Name)) || (desk && contains(t.self, p.Name) && !contains(selfs, p.Name) && p.Name != "in") {
 			required = append(required, name)
 		}
 	}
@@ -98,7 +111,7 @@ func (t tool) schema() map[string]any {
 
 // call maps tool arguments onto the action's argv, so that parsing, defaults
 // and error messages are the CLI's own.
-func (t tool) call(self string, in map[string]any) (any, error) {
+func (t tool) call(self string, desk bool, in map[string]any) (any, error) {
 	a := spec.FindVerb(t.action)
 	args := map[string]any{}
 	for k, v := range in {
@@ -109,7 +122,7 @@ func (t tool) call(self string, in map[string]any) (any, error) {
 		}
 		args[k] = v
 	}
-	for _, p := range t.self {
+	for _, p := range t.selfFor(desk) {
 		if v, ok := args[p]; !ok || v == "" {
 			args[p] = self
 		}
@@ -188,12 +201,21 @@ func runInstalled(action string, argv []string) (any, error) {
 	return result, nil
 }
 
-const mcpInstructions = "Tools of the dossier store. They act on this session's dossier by default, and on any " +
-	"dossier of the store when you name it. Close or merge only after the user said so."
+const (
+	mcpInstructions = "Tools of the dossier store. They act on this session's dossier by default, and on any " +
+		"dossier of the store when you name it. Close or merge only after the user said so."
+	mcpDeskInstructions = "Tools of the dossier store. This session is the store's desk, not a dossier: name the " +
+		"dossier every tool acts on. Close or merge only after the user said so."
+)
 
 // serveMCP speaks MCP over stdio, one JSON-RPC message per line.
 func serveMCP(in io.Reader, out io.Writer) error {
 	self := os.Getenv("DOSSIER_ID")
+	desk := strings.HasSuffix(self, "-DESK")
+	instructions := mcpInstructions
+	if desk {
+		instructions = mcpDeskInstructions
+	}
 	enc := json.NewEncoder(out)
 	enc.SetEscapeHTML(false)
 	sc := bufio.NewScanner(in)
@@ -224,14 +246,14 @@ func serveMCP(in io.Reader, out io.Writer) error {
 				"protocolVersion": p.ProtocolVersion,
 				"capabilities":    map[string]any{"tools": map[string]any{}},
 				"serverInfo":      map[string]any{"name": "dossier", "version": Version},
-				"instructions":    mcpInstructions,
+				"instructions":    instructions,
 			})
 		case "ping":
 			reply(map[string]any{})
 		case "tools/list":
 			var list []map[string]any
 			for _, t := range tools {
-				list = append(list, map[string]any{"name": t.name, "description": t.description, "inputSchema": t.schema()})
+				list = append(list, map[string]any{"name": t.name, "description": t.description, "inputSchema": t.schema(desk)})
 			}
 			reply(map[string]any{"tools": list})
 		case "tools/call":
@@ -257,7 +279,7 @@ func serveMCP(in io.Reader, out io.Writer) error {
 			if p.Arguments == nil {
 				p.Arguments = map[string]any{}
 			}
-			result, err := t.call(self, p.Arguments)
+			result, err := t.call(self, desk, p.Arguments)
 			if err != nil {
 				reply(textResult(map[string]any{"ok": false, "error": spec.Internal(err)}, true))
 				continue

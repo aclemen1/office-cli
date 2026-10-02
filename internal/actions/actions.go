@@ -265,9 +265,13 @@ func init() {
 					}
 					files = append(files, connector.File{Name: p, Path: p})
 				}
-				return a.Open(app.OpenParams{Title: ctx.Str("title"), Instruction: instr, SourceRef: ctx.Str("source"),
+				res, err := a.Open(app.OpenParams{Title: ctx.Str("title"), Instruction: instr, SourceRef: ctx.Str("source"),
 					ThreadRef: ctx.Str("thread"), URL: ctx.Str("url"), Files: files, NoStart: ctx.Bool("no-start"),
 					Alias: ctx.Str("alias"), In: ctx.List("in")})
+				if desk := a.ActingDesk(); desk != nil && res.ID != "" {
+					_ = desk.Log("%s %s · %s", res.Outcome, res.ID, ctx.Str("title"))
+				}
+				return res, err
 			})
 		},
 		Text: func(w io.Writer, r any) {
@@ -323,7 +327,7 @@ func init() {
 		Examples: []string{"dossier show D-0042", "dossier show 42 --format text"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}
@@ -387,7 +391,7 @@ func init() {
 		Examples: []string{"dossier attach D-0042", "dossier attach D-0042 --no-prompt"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}
@@ -410,7 +414,7 @@ func init() {
 		Examples: []string{`dossier prompt D-0042 --text "La gérance a rappelé, rédige la réponse."`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}
@@ -431,6 +435,22 @@ func init() {
 	})
 
 	// ---------------------------------------------------------------- state
+	spec.Register(&spec.Action{
+		Category: "dossier", Name: "unread", Summary: "Mark a dossier as unread: it shows as such until you open its pane again.",
+		Params:   []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID.")},
+		Effects:  []string{"Writes the user's visits file (seen.json in the user config directory); `dossier attach` marks the dossier read."},
+		Examples: []string{"dossier unread D-0042"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, false, func(a *app.App) (any, error) {
+				d, err := a.LoadAny(ctx.Str("id"))
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": d.ID, "unread": true}, a.MarkUnread(d)
+			})
+		},
+	})
+
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "delete", Summary: "Delete a dossier: withdraw its signal, close its tab, drop the links to it, remove its directory.",
 		Discussion: "For a dossier that should not exist (a test, a mistake). An affair that is settled gets `close` instead. " +
@@ -726,7 +746,7 @@ func init() {
 		Examples: []string{"dossier archive D-0042"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}

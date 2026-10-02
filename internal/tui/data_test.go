@@ -42,7 +42,7 @@ func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 	}
 	var got []string
 	for _, r := range rows {
-		if r.d == nil {
+		if r.header != "" {
 			got = append(got, "#"+r.header)
 			continue
 		}
@@ -98,13 +98,13 @@ func TestWaitingRowsGroupByPersonSoonestFirst(t *testing.T) {
 	var got []string
 	for _, r := range rows {
 		switch {
-		case r.person:
+		case r.person || r.desk:
 			got = append(got, "#"+r.header)
 		case r.d != nil:
 			got = append(got, r.d.ID)
 		}
 	}
-	if want := "#Livit,D-0003,D-0001,#Patricia,D-0002"; strings.Join(got, ",") != want {
+	if want := "#pro,#Livit,D-0003,D-0001,#Patricia,D-0002"; strings.Join(got, ",") != want {
 		t.Fatalf("got %s want %s", strings.Join(got, ","), want)
 	}
 }
@@ -128,7 +128,7 @@ func TestPriorityRaisesAMeetingWhosePointIsDue(t *testing.T) {
 		rows, _, _ := load(store.Discover(root), v)
 		var got []string
 		for _, r := range rows {
-			if r.d != nil {
+			if r.d != nil && !r.desk {
 				got = append(got, r.d.Title)
 			}
 		}
@@ -148,5 +148,24 @@ func TestANoActionDossierComesAfterOpenOnes(t *testing.T) {
 	quiet := &dossier.Dossier{ID: "D-0002", State: dossier.Open, NoAction: true}
 	if !urgencyOf(open, "none", now).before(urgencyOf(quiet, "none", now)) {
 		t.Fatal("a no-action dossier should rank after an open one")
+	}
+}
+
+func TestBMovesToTheDeskOfTheSelectedStore(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	for _, sphere := range []string{"perso", "pro"} {
+		s, _ := store.Init(filepath.Join(root, sphere), sphere, false)
+		(&app.App{S: s}).Open(app.OpenParams{Title: "Affaire " + sphere, NoStart: true})
+	}
+	m := &model{roots: store.Discover(root)}
+	m.reload()
+	m.cursor = len(m.rows) - 1
+	m.key("b")
+	if r := m.selected(); r == nil || !r.desk || r.store.name != "pro" {
+		t.Fatalf("selected %+v", r)
+	}
+	if m.key("x"); m.status == "" || !m.statusErr {
+		t.Fatal("x on the desk should be refused")
 	}
 }

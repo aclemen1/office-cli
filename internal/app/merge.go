@@ -38,7 +38,11 @@ func (a *App) Grep(d *dossier.Dossier, pattern string, limit int) ([]GrepHit, er
 	hits := []GrepHit{}
 	seen := map[string]bool{}
 	sources := map[string]string{d.Path("transcript.jsonl"): "archived", transcriptOf(d.Run.Session): "live"}
-	for _, path := range []string{d.Path("transcript.jsonl"), transcriptOf(d.Run.Session)} {
+	paths := archivedTranscripts(d)
+	for _, p := range paths {
+		sources[p] = "archived"
+	}
+	for _, path := range append(paths, d.Path("transcript.jsonl"), transcriptOf(d.Run.Session)) {
 		if path == "" {
 			continue
 		}

@@ -25,7 +25,7 @@ func init() {
 		Examples: []string{`dossier grep D-0042 "date de passage"`, `dossier grep D-0042 "devis|offre" --limit 10`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}
@@ -76,7 +76,7 @@ func init() {
 		Examples: []string{`dossier notify D-0007 D-0042 --text "Décidé en séance du 08.10 : on attend l'offre."`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				from, err := a.Load(ctx.Str("from"))
+				from, err := a.LoadAny(ctx.Str("from"))
 				if err != nil {
 					return nil, err
 				}
@@ -89,6 +89,9 @@ func init() {
 				}
 				text := fmt.Sprintf("From dossier %s (%s): %s", from.ID, from.Title, ctx.Str("text"))
 				_ = to.Log("from %s: %s", from.ID, ctx.Str("text"))
+				if app.IsDesk(from) {
+					_ = from.Log("notified %s · %s", to.ID, ctx.Str("text"))
+				}
 				if _, err := a.Wake(to, "notified by "+from.ID); err != nil {
 					return nil, err
 				}
@@ -122,7 +125,7 @@ func init() {
 		Examples: []string{"dossier restart U-0002"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}
@@ -131,6 +134,35 @@ func init() {
 				}
 				return map[string]any{"id": d.ID, "session": d.Run.Session, "tab_id": d.Run.TabID}, nil
 			})
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "dossier", Name: "desk", Summary: "Focus the store's desk: a lasting session that opens dossiers and answers about them.",
+		Discussion: "The desk has no state and never closes; ingest resumes it when its tab is gone. Its id is <prefix>-DESK " +
+			"(U-DESK), which attach, restart, prompt, show and grep accept. Its charter is <store>/desk/CLAUDE.md.",
+		Params: []spec.Param{{Name: "new", Kind: spec.Bool, Help: "Archive the current conversation into desk/transcripts/ and start a fresh one."}},
+		Effects: []string{"Creates <store>/desk/ with its CLAUDE.md on first use.",
+			"Starts the desk's session without a prompt when it has none, or resumes it in a tab; focuses the tab.",
+			"--new: closes the tab and archives the transcript first; grep desk still reads it."},
+		Examples: []string{"dossier desk", "dossier desk --new", "dossier grep desk \"Diego\""},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				d := a.Desk()
+				if ctx.Bool("new") {
+					if err := a.NewDeskConversation(d); err != nil {
+						return nil, err
+					}
+				}
+				if err := a.Attach(d, true); err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": d.ID, "session": d.Run.Session, "tab_id": d.Run.TabID}, nil
+			})
+		},
+		Text: func(w io.Writer, r any) {
+			m := r.(map[string]any)
+			fmt.Fprintf(w, "%s · session %s · tab %s\n", m["id"], m["session"], m["tab_id"])
 		},
 	})
 
@@ -175,7 +207,7 @@ func init() {
 				time.Sleep(d)
 			}
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				d, err := a.Load(ctx.Str("id"))
+				d, err := a.LoadAny(ctx.Str("id"))
 				if err != nil {
 					return nil, err
 				}

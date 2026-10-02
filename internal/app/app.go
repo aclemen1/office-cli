@@ -39,6 +39,9 @@ func (a *App) Load(id string) (*dossier.Dossier, error) {
 	if id == "" {
 		return nil, spec.UserError("no dossier id given and DOSSIER_ID is not set. Pass one, for example `dossier show D-0042`")
 	}
+	if a.isDesk(id) {
+		return nil, a.deskError()
+	}
 	if d := a.byAlias(id); d != nil {
 		return d, nil
 	}
@@ -79,6 +82,9 @@ func (a *App) SetAlias(d *dossier.Dossier, alias string) error {
 	if alias != "" {
 		if !aliasRe.MatchString(alias) {
 			return spec.UserError("alias %q must start with a letter and hold up to 16 letters, digits or dashes, e.g. RDIR", alias)
+		}
+		if alias == "DESK" {
+			return spec.UserError("alias DESK names the store's desk; choose another")
 		}
 		if other := a.byAlias(alias); other != nil && other.ID != d.ID {
 			return spec.UserError("alias %s is already %s (%s)", alias, other.ID, other.Title)
@@ -260,6 +266,9 @@ func (a *App) open(p OpenParams) (OpenResult, error) {
 	if alias != "" {
 		if !aliasRe.MatchString(alias) {
 			return OpenResult{}, spec.UserError("alias %q must start with a letter and hold up to 16 letters, digits or dashes, e.g. RDIR", p.Alias)
+		}
+		if alias == "DESK" {
+			return OpenResult{}, spec.UserError("alias DESK names the store's desk; choose another")
 		}
 		if other := a.byAlias(alias); other != nil {
 			return OpenResult{}, spec.UserError("alias %s is already %s (%s)", alias, other.ID, other.Title)
@@ -457,6 +466,11 @@ func (a *App) renderPrompt(d *dossier.Dossier, kind, instruction string, summary
 // ---------------------------------------------------------------- sessions
 
 func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
+	if IsDesk(d) {
+		if err := a.ensureDesk(d); err != nil {
+			return nil, err
+		}
+	}
 	cfg := a.S.Config
 	settings, err := a.agentSettings()
 	if err != nil {
@@ -555,9 +569,10 @@ func (a *App) sendPrompt(d *dossier.Dossier, text string) error {
 }
 
 // Attach makes sure the session runs in a tab and focuses it. A dossier
-// without a session gets one, with its open prompt unless noPrompt.
+// without a session gets one, with its open prompt unless noPrompt. The desk
+// starts without a prompt: its CLAUDE.md says what it does.
 func (a *App) Attach(d *dossier.Dossier, noPrompt bool) error {
-	if d.Run.Session == "" && noPrompt {
+	if d.Run.Session == "" && (noPrompt || IsDesk(d)) {
 		if err := a.startSilent(d); err != nil {
 			return err
 		}
@@ -577,7 +592,7 @@ func (a *App) Attach(d *dossier.Dossier, noPrompt bool) error {
 	if d.Run.TabID != "" {
 		_ = exec.Command("herdr", "tab", "focus", d.Run.TabID).Run()
 	}
-	return nil
+	return a.MarkSeen(d)
 }
 
 // startSilent starts a new session in a tab and sends it nothing.
@@ -678,6 +693,16 @@ func (a *App) Reconcile(handled map[string]bool) IngestReport {
 		_ = d.Log("session resumed in tab %s: the dossier is open", d.Run.TabID)
 		rep.Opened = append(rep.Opened, OpenResult{ID: d.ID, Dir: d.Dir, Outcome: "resumed", Session: d.Run.Session, TabID: d.Run.TabID})
 	}
+	// A desk once started stays available, outside the cap.
+	if d := a.Desk(); d.Run.Session != "" && !handled[d.ID] && !paneAlive(d.Run.PaneID) {
+		rep.Events++
+		if err := a.resume(d); err != nil {
+			rep.Errors = append(rep.Errors, d.ID+": "+err.Error())
+		} else {
+			_ = d.Log("session resumed in tab %s: the desk stays available", d.Run.TabID)
+			rep.Opened = append(rep.Opened, OpenResult{ID: d.ID, Dir: d.Dir, Outcome: "resumed", Session: d.Run.Session, TabID: d.Run.TabID})
+		}
+	}
 	return rep
 }
 
@@ -698,6 +723,11 @@ func contextFiles(d *dossier.Dossier) []string {
 }
 
 func (a *App) Prompt(d *dossier.Dossier, text string) error {
+	if IsDesk(d) {
+		if err := a.ensureDesk(d); err != nil {
+			return err
+		}
+	}
 	if err := a.requireAction(d, "prompted"); err != nil {
 		return err
 	}
@@ -946,9 +976,9 @@ func copyIfNewer(src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 
-// TranscriptPaths returns the archived and the live transcript, when present.
+// TranscriptPaths returns the archived and the live transcripts, when present.
 func TranscriptPaths(d *dossier.Dossier) []string {
-	var out []string
+	out := archivedTranscripts(d)
 	if _, err := os.Stat(d.Path("transcript.jsonl")); err == nil {
 		out = append(out, d.Path("transcript.jsonl"))
 	}
