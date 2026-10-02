@@ -129,3 +129,28 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 	}
 	return m.key("enter")
 }
+
+// heal handles a docked agent whose pane is gone, e.g. after /exit: its
+// placeholder waits alone in its tab, so it comes back to the TUI's right.
+func (m *model) heal() tea.Cmd {
+	if !m.side || m.docked.id == "" {
+		return nil
+	}
+	for _, r := range m.rows {
+		if r.d == nil || r.store.root != m.docked.root || r.d.ID != m.docked.id {
+			continue
+		}
+		if r.activity != "stopped" && r.activity != "none" {
+			return nil
+		}
+		prev, placeholder := m.docked, m.placeholder
+		m.docked = docked{}
+		tui, tab := os.Getenv("HERDR_PANE_ID"), os.Getenv("HERDR_TAB_ID")
+		return func() tea.Msg {
+			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").Run()
+			_ = exec.Command("herdr", "pane", "move", placeholder, "--tab", tab, "--split", "right", "--target-pane", tui, "--ratio", "0.35", "--no-focus").Run()
+			return nil
+		}
+	}
+	return nil
+}

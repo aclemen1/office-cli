@@ -191,7 +191,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.reload()
-		return m, tick()
+		return m, tea.Batch(tick(), m.heal())
 	case doneMsg:
 		switch {
 		case msg.err != nil:

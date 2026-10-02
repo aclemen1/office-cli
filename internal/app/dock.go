@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"time"
 
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 	"github.com/aclemen1/dossier-cli/internal/spec"
@@ -65,6 +64,9 @@ func trade(pane, other, workspace, label, focus string) (paneNow, otherNow, tab 
 		return "", "", "", err
 	}
 	otherNow, tab, err = move(other, "--new-tab", "--workspace", workspace, "--label", label, "--no-focus")
+	if err == nil {
+		resize(paneNow)
+	}
 	return paneNow, otherNow, tab, err
 }
 
@@ -128,7 +130,6 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string) error {
 			return err
 		}
 		d.Run.PaneID = paneNow
-		redraw(paneNow)
 		d.Run.Home, d.Run.Placeholder, d.Run.TabID = own.WorkspaceID, placeholderNow, ""
 		_ = d.Log("pane docked in place of %s", placeholder)
 	}
@@ -160,7 +161,6 @@ func (a *App) Undock(d *dossier.Dossier) error {
 			return err
 		}
 		d.Run.PaneID, d.Run.TabID = paneNow, tab
-		redraw(paneNow)
 		_ = d.Log("pane undocked to tab %s", tab)
 	}
 	d.Run.Home, d.Run.Placeholder = "", ""
@@ -183,9 +183,14 @@ func paneCount(tab string) int {
 	return r.Result.Tab.PaneCount
 }
 
-// redraw asks the agent to repaint: on its way, the pane passed through half
-// the height, and Claude Code does not repaint what it drew then.
-func redraw(pane string) {
-	time.Sleep(300 * time.Millisecond)
-	_, _ = herdrCall("pane", "send-keys", pane, "ctrl+l")
+// resize makes herdr give the pane's terminal the size of its place: after a
+// swap, the pane keeps the terminal of the half it passed through. Moving its
+// split there and back is enough.
+func resize(pane string) {
+	for _, dirs := range [][2]string{{"left", "right"}, {"right", "left"}} {
+		if _, err := herdrCall("pane", "resize", "--pane", pane, "--direction", dirs[0], "--amount", "0.01"); err == nil {
+			_, _ = herdrCall("pane", "resize", "--pane", pane, "--direction", dirs[1], "--amount", "0.01")
+			return
+		}
+	}
 }

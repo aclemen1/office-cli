@@ -52,6 +52,7 @@ func TestDockTradesPlacesWithThePlaceholderAndBack(t *testing.T) {
 		"pane move fake:p1 --tab tui-tab --split down --target-pane ph --focus",
 		"pane swap --source-pane tui-ws:p1 --target-pane ph",
 		"pane move ph --new-tab --workspace tui-ws --label dock placeholder --no-focus",
+		"pane resize --pane tui-ws:p1 --direction left --amount 0.01",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in\n%s", want, got)
