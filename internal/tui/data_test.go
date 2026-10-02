@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -240,5 +241,35 @@ func TestGmailKeysAndGSequences(t *testing.T) {
 	m.key("c")
 	if m.ask == nil || m.ask.title != "New dossier" {
 		t.Fatal("c should open the new-dossier form")
+	}
+}
+
+func TestHSendsTheDockedAgentHome(t *testing.T) {
+	m := &model{}
+	if m.key("h"); !m.statusErr {
+		t.Fatal("h with nothing docked should say so")
+	}
+	m = &model{side: true, placeholder: "w1:p2", docked: docked{root: "/s", id: "U-0001"}}
+	if cmd := m.key("h"); cmd == nil || m.docked.id != "" || !m.side {
+		t.Fatalf("h should undock and keep side mode: %+v", m.docked)
+	}
+}
+
+func TestThePlaceholderRereadsAtOnceWhenAnAgentDocks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	a := &app.App{S: s}
+	roots := store.Discover(root)
+	p := &placeholder{roots: roots, stamps: stampsOf(roots), counted: time.Now(), lines: []string{}}
+	p.watch()
+	if p.counted.IsZero() {
+		t.Fatal("no stamp yet: nothing to reread")
+	}
+	os.MkdirAll(filepath.Dir(a.DockStamp()), 0o755)
+	os.WriteFile(a.DockStamp(), []byte("x"), 0o644)
+	p.watch()
+	if !p.counted.IsZero() {
+		t.Fatal("a touched stamp should make the placeholder reread the stores")
 	}
 }

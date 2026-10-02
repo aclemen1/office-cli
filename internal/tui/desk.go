@@ -148,6 +148,7 @@ func legendView(w int, add func(...string)) {
 		{"W  u", "wait, resume"}, {"n", "no action for now"},
 		{"s  R  N", "start without prompt, restart, new desk conversation"},
 		{"v", "side mode: agents open at the TUI's right"},
+		{"h", "send the agent at the right back to its tab; the placeholder returns"},
 		{"j k  gg G", "move, top, end"},
 		{"g d  (b)", "go to the desk"}, {"g i", "active dossiers"},
 		{"g t  (t)", "to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},

@@ -154,3 +154,19 @@ func (m *model) heal() tea.Cmd {
 	}
 	return nil
 }
+
+// sendHome undocks the agent at the TUI's right: it goes back to its own
+// tab, and the placeholder takes its place again. Side mode stays on.
+func (m *model) sendHome() tea.Cmd {
+	if !m.side || m.docked.id == "" {
+		m.status, m.statusErr = "no agent docked at the right", true
+		return nil
+	}
+	prev, placeholder := m.docked, m.placeholder
+	m.docked = docked{}
+	m.status, m.statusErr = prev.id+": sending its agent home…", false
+	return func() tea.Msg {
+		out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").CombinedOutput()
+		return doneMsg{id: prev.id, verb: "undock", out: strings.TrimSpace(string(out)), err: err}
+	}
+}

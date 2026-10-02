@@ -20,7 +20,8 @@ import (
 // holds its place, it names that agent: enter or a click jumps to it, u gives
 // the place back.
 func RunPlaceholder(root string) error {
-	p := &placeholder{roots: store.Discover(root), self: os.Getenv("HERDR_PANE_ID")}
+	roots := store.Discover(root)
+	p := &placeholder{roots: roots, stamps: stampsOf(roots), self: os.Getenv("HERDR_PANE_ID")}
 	_, err := tea.NewProgram(p, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
@@ -34,6 +35,8 @@ type placeholder struct {
 	holder        *heldBy
 	counted       time.Time
 	note          string
+	stamp         time.Time // newest dock.stamp seen
+	stamps        []string
 }
 
 // heldBy is the dossier whose agent sits in this placeholder's place.
@@ -46,7 +49,7 @@ type heldBy struct {
 type clockMsg time.Time
 
 func clock() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return clockMsg(t) })
+	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg { return clockMsg(t) })
 }
 
 func (p *placeholder) Init() tea.Cmd { p.now = time.Now(); return clock() }
@@ -57,6 +60,7 @@ func (p *placeholder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.width, p.height = msg.Width, msg.Height
 	case clockMsg:
 		p.now = time.Time(msg)
+		p.watch()
 		return p, clock()
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
@@ -165,3 +169,23 @@ func (p *placeholder) View() string {
 }
 
 var weekdays = strings.Fields("Sunday Monday Tuesday Wednesday Thursday Friday Saturday")
+
+// watch rereads the stores at once when an agent docks or undocks: dossier
+// touches each store's dock.stamp then.
+func (p *placeholder) watch() {
+	for _, path := range p.stamps {
+		if fi, err := os.Stat(path); err == nil && fi.ModTime().After(p.stamp) {
+			p.stamp, p.counted = fi.ModTime(), time.Time{}
+		}
+	}
+}
+
+func stampsOf(roots []string) []string {
+	var out []string
+	for _, root := range roots {
+		if s, err := store.Open(root); err == nil {
+			out = append(out, (&app.App{S: s}).DockStamp())
+		}
+	}
+	return out
+}

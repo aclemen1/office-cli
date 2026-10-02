@@ -3,7 +3,10 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"time"
 
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 	"github.com/aclemen1/dossier-cli/internal/spec"
@@ -130,12 +133,14 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string) error {
 			return err
 		}
 		d.Run.PaneID = paneNow
+		_, _ = herdrCall("pane", "rename", paneNow, TabLabel(d))
 		d.Run.Home, d.Run.Placeholder, d.Run.TabID = own.WorkspaceID, placeholderNow, ""
 		_ = d.Log("pane docked in place of %s", placeholder)
 	}
 	if err := d.Save(); err != nil {
 		return err
 	}
+	a.touchDock()
 	return a.MarkSeen(d)
 }
 
@@ -164,7 +169,11 @@ func (a *App) Undock(d *dossier.Dossier) error {
 		_ = d.Log("pane undocked to tab %s", tab)
 	}
 	d.Run.Home, d.Run.Placeholder = "", ""
-	return d.Save()
+	if err := d.Save(); err != nil {
+		return err
+	}
+	a.touchDock()
+	return nil
 }
 
 func paneCount(tab string) int {
@@ -193,4 +202,13 @@ func resize(pane string) {
 			return
 		}
 	}
+}
+
+// DockStamp is touched at each dock and undock: placeholders watch it.
+func (a *App) DockStamp() string { return a.S.Meta("run", "dock.stamp") }
+
+func (a *App) touchDock() {
+	p := a.DockStamp()
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte(time.Now().Format(time.RFC3339Nano)+"\n"), 0o644)
 }

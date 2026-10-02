@@ -203,6 +203,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status, m.statusErr = msg.id+": pane focused", false
 		case msg.verb == "dock":
 			m.status, m.statusErr = msg.id+": agent docked at the right", false
+		case msg.verb == "undock":
+			m.status, m.statusErr = msg.id+": agent back in its tab", false
 		case msg.verb == "desk":
 			m.status, m.statusErr = "desk: fresh conversation started, the previous one is archived", false
 		default:
@@ -291,6 +293,8 @@ func (m *model) key(k string) tea.Cmd {
 	switch k {
 	case "v":
 		return m.toggleSide()
+	case "h":
+		return m.sendHome()
 	case "b":
 		m.toDesk()
 	case "?":
@@ -596,7 +600,7 @@ func (m *model) bottomBar() string {
 		return strings.Join(parts, sFaint.Render("  ·  "))
 	}
 	line := keyLine([][2]string{{"c", "new"}, {"o", "open"}, {"e", "close"}, {"W", "wait"}, {"u", "resume"}, {"#", "delete"}, {"n", "no action"}, {"U", "unread"},
-		{"s", "start"}, {"R", "restart"}, {"v", "side"}}) + "\n" +
+		{"s", "start"}, {"R", "restart"}, {"v", "side"}, {"h", "send home"}}) + "\n" +
 		keyLine([][2]string{{"j k", "move"}, {"gg G", "top, end"}, {"g d", "desk"}, {"g i", "active"}, {"g t", "to do"}, {"g w", "by person"}, {"g a", "all"},
 			{"/", "filter"}, {"i", "ingest"}, {"p", "priority"}, {"tab", "detail"}, {"?", "keys"}, {"q", "quit"}})
 	if len(m.errs) > 0 {
