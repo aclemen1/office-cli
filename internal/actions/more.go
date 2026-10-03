@@ -66,10 +66,11 @@ func init() {
 
 	spec.Register(&spec.Action{
 		Category: "graph", Name: "notify", Summary: "Send an event from one dossier to another: a decision, new information, a request.",
-		Discussion: "Any two dossiers of the store, e.g. a meeting tells an item what was decided, or an item asks its meeting to add a point.",
+		Discussion: "Any two dossiers of the store, e.g. a meeting tells an item what was decided, or an item asks its meeting to add a point. " +
+			"<to> may be desk: the event becomes an escalation, as with `dossier escalate`.",
 		Params: []spec.Param{
 			{Name: "from", Kind: spec.String, Positional: true, Required: true, Help: "Dossier the event comes from."},
-			{Name: "to", Kind: spec.String, Positional: true, Required: true, Help: "Dossier that must know."},
+			{Name: "to", Kind: spec.String, Positional: true, Required: true, Help: "Dossier that must know, or desk."},
 			{Name: "text", Kind: spec.String, Required: true, Help: "What <to> must know."},
 		},
 		Effects:  []string{"Logs the event in <to> and prompts its session; a dossier without session only gets the log line."},
@@ -80,12 +81,15 @@ func init() {
 				if err != nil {
 					return nil, err
 				}
-				to, err := a.Load(ctx.Str("to"))
+				to, err := a.LoadAny(ctx.Str("to"))
 				if err != nil {
 					return nil, err
 				}
 				if from.ID == to.ID {
 					return nil, spec.UserError("%s cannot notify itself", from.ID)
+				}
+				if app.IsDesk(to) {
+					return a.Escalate(from, ctx.Str("text"))
 				}
 				text := fmt.Sprintf("From dossier %s (%s): %s", from.ID, from.Title, ctx.Str("text"))
 				_ = to.Log("from %s: %s", from.ID, ctx.Str("text"))
@@ -100,6 +104,40 @@ func init() {
 				}
 				return map[string]any{"to": to.ID, "prompted": true}, a.Prompt(to, text)
 			})
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "graph", Name: "escalate", Summary: "Escalate a request from a dossier to the store's desk: a rule to adopt, a skill to change, anything beyond the dossier.",
+		Discussion: "The escalation waits in <store>/desk/escalations/ until the desk's session is idle, then reaches it as a prompt; " +
+			"ingest delivers what is still pending. `dossier show desk` lists the pending ones.",
+		Params: []spec.Param{
+			idParam("Dossier the request comes from. Defaults to DOSSIER_ID."),
+			{Name: "text", Kind: spec.String, Required: true, Help: "What the desk must know or decide."},
+		},
+		Effects: []string{"Writes the escalation in desk/escalations/ and a line in both histories.",
+			"Prompts the desk at once when its session is idle; otherwise ingest does it later."},
+		Examples: []string{`dossier escalate P-0011 --text "Règle proposée : une citation dictée au desk se dépose dans 10-Staging/."`},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				id := ctx.Str("id")
+				if id == "" && os.Getenv("DOSSIER_ID") == "" {
+					return nil, spec.UserError("name the dossier that escalates. Example: dossier escalate P-0011 --text \"…\"")
+				}
+				from, err := a.LoadAny(id)
+				if err != nil {
+					return nil, err
+				}
+				return a.Escalate(from, ctx.Str("text"))
+			})
+		},
+		Text: func(w io.Writer, r any) {
+			e := r.(app.EscalateResult)
+			if e.Delivered {
+				fmt.Fprintf(w, "%s → %s · delivered\n", e.From, e.To)
+			} else {
+				fmt.Fprintf(w, "%s → %s · pending (%d), delivered when the desk is idle\n", e.From, e.To, e.Pending)
+			}
 		},
 	})
 

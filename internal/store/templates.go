@@ -104,6 +104,8 @@ acts on.
   here: its own session does it.
 - wait, close, merge and delete act on a dossier only when the user asks, and
   name it.
+- An escalation from a dossier: present it to the user. Adopt a rule or change
+  a skill only with their agreement, then tell the dossier with notify.
 `
 
 const charterTemplate = `# Dossiers ({{sphere}})

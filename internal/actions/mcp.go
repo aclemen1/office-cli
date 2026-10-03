@@ -19,6 +19,7 @@ type tool struct {
 	self                      []string          // params that default to DOSSIER_ID
 	rename                    map[string]string // action param → tool param
 	hide                      []string
+	dossierOnly               bool // not served to the desk's session
 }
 
 var tools = []tool{
@@ -44,6 +45,20 @@ var tools = []tool{
 	{name: "merge", action: "merge", self: []string{"from"}, description: "Merge a dossier into another one, after the user agreed."},
 	{name: "move", action: "move", description: "Move dossiers to another store (its sphere, e.g. pro): they get a number there, links among them stay. Only when the user asked."},
 	{name: "notify", action: "notify", self: []string{"from"}, description: "Tell another dossier something: a decision, new information, a request. Its session gets it as a prompt."},
+	{name: "escalate", action: "escalate", self: []string{"id"}, dossierOnly: true,
+		description: "Escalate to the store's desk what goes beyond this dossier: a rule to adopt, a skill to change, a request for the user. The desk gets it as a prompt once its session is idle."},
+}
+
+// toolsFor lists the tools served to a session.
+func toolsFor(desk bool) []tool {
+	var out []tool
+	for _, t := range tools {
+		if desk && t.dossierOnly {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 func contains(l []string, s string) bool {
@@ -255,7 +270,7 @@ func serveMCP(in io.Reader, out io.Writer) error {
 			reply(map[string]any{})
 		case "tools/list":
 			var list []map[string]any
-			for _, t := range tools {
+			for _, t := range toolsFor(desk) {
 				list = append(list, map[string]any{"name": t.name, "description": t.description, "inputSchema": t.schema(desk)})
 			}
 			reply(map[string]any{"tools": list})
@@ -266,9 +281,10 @@ func serveMCP(in io.Reader, out io.Writer) error {
 			}
 			_ = json.Unmarshal(req.Params, &p)
 			var t *tool
-			for i := range tools {
-				if tools[i].name == p.Name {
-					t = &tools[i]
+			served := toolsFor(desk)
+			for i := range served {
+				if served[i].name == p.Name {
+					t = &served[i]
 				}
 			}
 			if t == nil {

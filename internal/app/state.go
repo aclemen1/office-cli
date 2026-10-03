@@ -548,6 +548,14 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 		if rep := a.Reconcile(handled); rep.Events > 0 || len(rep.Skipped) > 0 || len(rep.Errors) > 0 {
 			reports = append(reports, rep)
 		}
+		rep := IngestReport{Source: "escalations"}
+		if n, err := a.DeliverEscalations(); err != nil {
+			rep.Errors = append(rep.Errors, a.DeskID()+": "+err.Error())
+			reports = append(reports, rep)
+		} else if n > 0 {
+			rep.Events = n
+			reports = append(reports, rep)
+		}
 		a.S.Unlock()
 	}
 	return reports, nil

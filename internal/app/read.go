@@ -102,6 +102,8 @@ type ShowResult struct {
 	Outgoing []Edge   `json:"outgoing"`
 	Incoming []Edge   `json:"incoming"`
 	Log      string   `json:"log"`
+
+	Escalations []Escalation `json:"escalations,omitempty"`
 }
 
 func (a *App) Show(d *dossier.Dossier) ShowResult {
@@ -116,6 +118,9 @@ func (a *App) Show(d *dossier.Dossier) ShowResult {
 	r.Body = strings.TrimSpace(d.Body())
 	if b, err := os.ReadFile(d.Path("log.md")); err == nil {
 		r.Log = string(b)
+	}
+	if IsDesk(d) {
+		r.Escalations = Escalations(d)
 	}
 	return r
 }

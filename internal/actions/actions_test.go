@@ -282,6 +282,27 @@ func TestMCPWaitsAndResumesAnotherDossier(t *testing.T) {
 	}
 }
 
+func TestMCPEscalatesToTheDesk(t *testing.T) {
+	a := storeWith(t, "Citations")
+	c := startMCP(t)
+	c.rpc(t, "initialize", map[string]any{})
+	env, isErr := c.call(t, "escalate", map[string]any{"text": "Règle des citations"})
+	if isErr || env["result"].(map[string]any)["pending"] != float64(1) {
+		t.Fatalf("escalate %v", env)
+	}
+	if env, isErr := c.call(t, "notify", map[string]any{"to": "desk", "text": "Autre règle"}); isErr {
+		t.Fatalf("notify desk %v", env)
+	}
+	if e := app.Escalations(a.Desk()); len(e) != 2 || e[0].From != "D-0001" {
+		t.Fatalf("escalations %+v", e)
+	}
+	for _, tl := range toolsFor(true) {
+		if tl.name == "escalate" {
+			t.Fatal("the desk is offered escalate")
+		}
+	}
+}
+
 func TestMCPOnTheDeskNamesItsDossier(t *testing.T) {
 	required := func(name string, desk bool) []string {
 		for _, tl := range tools {

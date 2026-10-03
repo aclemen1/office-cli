@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aclemen1/dossier-cli/internal/dossier"
@@ -103,6 +104,100 @@ func archivedTranscripts(d *dossier.Dossier) []string {
 	m, _ := filepath.Glob(d.Path("transcripts", "*.jsonl"))
 	sort.Strings(m)
 	return m
+}
+
+// Escalations wait in <desk>/escalations/<stamp>_<from>.md until the desk's
+// session is idle; delivered ones move to escalations/delivered/.
+const escalationsDir = "escalations"
+
+type Escalation struct {
+	File string `json:"file"`
+	From string `json:"from"`
+	Text string `json:"text"`
+}
+
+type EscalateResult struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Delivered bool   `json:"delivered"`
+	Pending   int    `json:"pending"`
+}
+
+// Escalate queues a dossier's request for the desk, then delivers the queue
+// if the desk is idle.
+func (a *App) Escalate(from *dossier.Dossier, text string) (EscalateResult, error) {
+	d := a.Desk()
+	res := EscalateResult{From: from.ID, To: d.ID}
+	if IsDesk(from) {
+		return res, spec.UserError("the desk cannot escalate to itself")
+	}
+	if err := a.ensureDesk(d); err != nil {
+		return res, err
+	}
+	if err := os.MkdirAll(d.Path(escalationsDir), 0o755); err != nil {
+		return res, err
+	}
+	name := now().Format("20060102-150405.000000000") + "_" + from.ID + ".md"
+	body := fmt.Sprintf("From dossier %s (%s): %s\n", from.ID, from.Title, text)
+	if err := os.WriteFile(d.Path(escalationsDir, name), []byte(body), 0o644); err != nil {
+		return res, err
+	}
+	_ = d.Log("escalation from %s: %s", from.ID, text)
+	_ = from.Log("escalated to %s · %s", d.ID, text)
+	n, err := a.DeliverEscalations()
+	if err != nil {
+		return res, err
+	}
+	res.Delivered = n > 0
+	res.Pending = len(Escalations(d))
+	return res, nil
+}
+
+// Escalations lists the desk's pending escalations, oldest first.
+func Escalations(d *dossier.Dossier) []Escalation {
+	m, _ := filepath.Glob(d.Path(escalationsDir, "*.md"))
+	sort.Strings(m)
+	out := []Escalation{}
+	for _, p := range m {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		base := strings.TrimSuffix(filepath.Base(p), ".md")
+		_, from, _ := strings.Cut(base, "_")
+		out = append(out, Escalation{File: filepath.Base(p), From: from, Text: strings.TrimSpace(string(b))})
+	}
+	return out
+}
+
+// DeliverEscalations sends the pending escalations to the desk in one prompt
+// when its session is idle or waits for the user. A busy, stopped or not yet
+// started desk keeps them for the next ingest.
+func (a *App) DeliverEscalations() (int, error) {
+	d := a.Desk()
+	pending := Escalations(d)
+	if len(pending) == 0 || d.Run.Session == "" {
+		return 0, nil
+	}
+	if act := Activity(d, Panes()); act != "idle" && act != "ready" {
+		return 0, nil
+	}
+	var b strings.Builder
+	b.WriteString("Escalations from dossiers. Present each one to the user; adopt a rule or change a skill only with their agreement.\n")
+	for _, e := range pending {
+		b.WriteString("\n- " + e.Text)
+	}
+	if err := a.Prompt(d, b.String()); err != nil {
+		return 0, err
+	}
+	if err := os.MkdirAll(d.Path(escalationsDir, "delivered"), 0o755); err != nil {
+		return 0, err
+	}
+	for _, e := range pending {
+		_ = os.Rename(d.Path(escalationsDir, e.File), d.Path(escalationsDir, "delivered", e.File))
+		_ = d.Log("escalation from %s delivered", e.From)
+	}
+	return len(pending), nil
 }
 
 // Conversation describes the session's current conversation.

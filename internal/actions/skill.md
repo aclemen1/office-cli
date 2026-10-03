@@ -34,6 +34,7 @@ store's prefix: P-0042 and U-0042 are in different stores.
 | Open a dossier | `dossier open --title "…" --instruction "…" [--file <path>]` |
 | Add it to another dossier, e.g. a meeting | `--in <id or alias>` on `open`, or `dossier link <holder> <id> --rel includes` |
 | Tell a dossier something new | `dossier notify <from> <to> --text "…"` |
+| Escalate to the desk what goes beyond a dossier (a rule, a skill) | `dossier escalate <from> --text "…"` |
 | Wait on someone outside | `dossier wait <id> --on "<who>" [--until 2026-10-15\|7d]` |
 | Nothing to do for now | `dossier park <id> --note "…"` |
 | Keep a dossier at hand, when the user asks | `dossier star <id>` (`unstar` removes it) |

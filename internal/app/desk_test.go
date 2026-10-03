@@ -1,9 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/aclemen1/dossier-cli/internal/connector"
 )
 
 func TestTheDeskIsNoDossier(t *testing.T) {
@@ -75,6 +78,91 @@ func TestANewDeskConversationKeepsTheOldOneSearchable(t *testing.T) {
 	if hits, _ := f.a.Grep(d, "diego", 10); len(hits) != 1 {
 		t.Fatalf("grep %+v", hits)
 	}
+}
+
+// deskWith starts the desk and sets the agent status herdr reports for its pane.
+func deskWith(t *testing.T, f *fixture, status string) {
+	t.Helper()
+	if err := f.a.Attach(f.a.Desk(), true); err != nil {
+		t.Fatal(err)
+	}
+	pane := f.a.Desk().Run.PaneID
+	old := panes
+	t.Cleanup(func() { panes = old })
+	panes = func() map[string]string { return map[string]string{pane: status} }
+}
+
+func TestABusyDeskKeepsEscalationsUntilItIsIdle(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Citations", NoStart: true})
+	deskWith(t, f, "working")
+	res, err := f.a.Escalate(mustGet(t, f, "1"), "Règle des citations")
+	if err != nil || res.Delivered || res.Pending != 1 {
+		t.Fatalf("escalate %+v %v", res, err)
+	}
+	if len(f.calls("session/prompt")) != 0 {
+		t.Fatal("a busy desk was prompted")
+	}
+	if s := f.a.Show(f.a.Desk()); len(s.Escalations) != 1 || s.Escalations[0].From != "D-0001" {
+		t.Fatalf("show desk %+v", s.Escalations)
+	}
+	deskWith(t, f, "done")
+	if n, err := f.a.DeliverEscalations(); n != 1 || err != nil {
+		t.Fatalf("deliver %d %v", n, err)
+	}
+	prompts := f.calls("session/prompt")
+	if len(prompts) != 1 || !strings.Contains(fmt.Sprint(prompts[0]), "Règle des citations") {
+		t.Fatalf("prompts %v", prompts)
+	}
+	if len(Escalations(f.a.Desk())) != 0 {
+		t.Fatal("a delivered escalation is still pending")
+	}
+	if n, _ := f.a.DeliverEscalations(); n != 0 {
+		t.Fatal("an escalation was delivered twice")
+	}
+	if log, _ := os.ReadFile(mustGet(t, f, "1").Path("log.md")); !strings.Contains(string(log), "escalated to D-DESK") {
+		t.Fatalf("sender log:\n%s", log)
+	}
+}
+
+func TestAnIdleDeskGetsTheEscalationAtOnce(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Citations", NoStart: true})
+	deskWith(t, f, "idle")
+	res, err := f.a.Escalate(mustGet(t, f, "1"), "Règle")
+	if err != nil || !res.Delivered || res.Pending != 0 || len(f.calls("session/prompt")) != 1 {
+		t.Fatalf("escalate %+v %v", res, err)
+	}
+}
+
+func TestADeskWithoutSessionKeepsEscalations(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Citations", NoStart: true})
+	res, err := f.a.Escalate(mustGet(t, f, "1"), "Règle")
+	if err != nil || res.Delivered || len(f.calls("session/new")) != 0 {
+		t.Fatalf("escalate %+v %v", res, err)
+	}
+	if _, err := f.a.Escalate(f.a.Desk(), "x"); err == nil {
+		t.Fatal("the desk escalated to itself")
+	}
+}
+
+func TestIngestDeliversPendingEscalations(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Citations", NoStart: true})
+	deskWith(t, f, "working")
+	f.a.Escalate(mustGet(t, f, "1"), "Règle")
+	deskWith(t, f, "idle")
+	reps, err := f.a.Ingest(nil, connector.PollOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range reps {
+		if r.Source == "escalations" && r.Events == 1 {
+			return
+		}
+	}
+	t.Fatalf("ingest delivered nothing: %+v", reps)
 }
 
 func TestStarMarksADossierButNotTheDesk(t *testing.T) {
