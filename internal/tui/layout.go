@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -95,15 +96,20 @@ func withBar(lines []string, w, total, offset int) []string {
 	return out
 }
 
-var sSelected = lipgloss.NewStyle().Bold(true).Foreground(cText).Background(cSel)
+// sgrReset matches the resets lipgloss puts after each styled span.
+var sgrReset = regexp.MustCompile(`\x1b\[0?m`)
 
-// selectLine shows the selected row plainly on a strong background, with a bar
-// in the accent colour: the colours of its marks would hide the selection.
+// selectLine puts the selected row on a strong background, with a bar in the
+// accent colour, and keeps every colour of the row: the agent's mark keeps
+// meaning what it means. The background is set again after each reset.
 func selectLine(line string, w int) string {
-	plain := []rune(ansi.Strip(line))
-	if len(plain) > 0 {
-		plain = plain[1:]
+	probe := lipgloss.NewStyle().Background(cSel).Render("|")
+	bg, _, _ := strings.Cut(probe, "|")
+	rest := ansi.Cut(line, 1, w)
+	body := bg + sgrReset.ReplaceAllStringFunc(rest, func(r string) string { return r + bg })
+	if pad := w - 1 - lipgloss.Width(rest); pad > 0 {
+		body += strings.Repeat(" ", pad)
 	}
-	return lipgloss.NewStyle().Foreground(cAccent).Background(cSel).Bold(true).Render("▌") +
-		sSelected.Width(max(1, w-1)).MaxWidth(max(1, w-1)).Render(string(plain))
+	bar := lipgloss.NewStyle().Foreground(cAccent).Background(cSel).Bold(true).Render("▌")
+	return bar + body + "\x1b[m"
 }

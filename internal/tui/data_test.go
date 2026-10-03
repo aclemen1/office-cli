@@ -536,3 +536,23 @@ func TestOnlyAnAgentThatWaitedKeepsTheTopRank(t *testing.T) {
 		t.Fatal("an agent that waited for you keeps its rank while shown")
 	}
 }
+
+func TestAWorkingAgentSpins(t *testing.T) {
+	frame = 0
+	a := activityMark("working")
+	frame = 1
+	if activityMark("working") == a {
+		t.Fatal("the working mark should change from one frame to the next")
+	}
+	if activityMark("ready") == a {
+		t.Fatal("working and your turn must not look alike")
+	}
+	m := &model{rows: []row{{activity: "idle"}}}
+	if m.spinning() {
+		t.Fatal("nothing works: the beat slows down")
+	}
+	m.rows = append(m.rows, row{activity: "working"})
+	if !m.spinning() {
+		t.Fatal("an agent works: the mark spins")
+	}
+}

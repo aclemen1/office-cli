@@ -6,6 +6,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/aclemen1/dossier-cli/internal/dossier"
 )
 
 func TestFlowWrapsSegmentsWithoutCuttingThem(t *testing.T) {
@@ -95,5 +97,33 @@ func TestTheFooterOffersToScrollAnOverflowingDetail(t *testing.T) {
 	m.window(make([]string, 40), 10)
 	if !has(m) {
 		t.Fatal("an overflowing detail panel should offer J K")
+	}
+}
+
+func TestTheSelectionKeepsTheRowsColours(t *testing.T) {
+	mark := lipgloss.NewStyle().Foreground(cReady).Render("●")
+	fg, _, _ := strings.Cut(mark, "●")
+	line := selectLine(" "+mark+" U-0001 open", 30)
+	if !strings.Contains(line, fg) {
+		t.Fatal("the agent's mark lost its colour on the selected row")
+	}
+	bg, _, _ := strings.Cut(lipgloss.NewStyle().Background(cSel).Render("|"), "|")
+	if strings.Count(line, bg) < 2 {
+		t.Fatal("the background should come back after the mark's reset")
+	}
+	if lipgloss.Width(line) != 30 {
+		t.Fatalf("width %d", lipgloss.Width(line))
+	}
+}
+
+func TestTheHeaderTellsToDoFromNoAction(t *testing.T) {
+	sv := &storeView{name: "pro", count: map[string]int{dossier.Waiting: 1}, all: []*dossier.Dossier{
+		{ID: "U-1", State: dossier.Open}, {ID: "U-2", State: dossier.Open, NoAction: true},
+		{ID: "U-3", State: dossier.Open, NoAction: true}, {ID: "U-4", State: dossier.Waiting},
+	}}
+	m := &model{stores: []*storeView{sv}}
+	got := ansi.Strip(strings.Join(m.topBar(200), " "))
+	if !strings.Contains(got, "pro  1 to do  2 no action  1 waiting") {
+		t.Fatalf("header %q", got)
 	}
 }

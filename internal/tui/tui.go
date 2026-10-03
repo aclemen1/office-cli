@@ -95,7 +95,32 @@ func tick() tea.Cmd {
 	return tea.Tick(refreshEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *model) Init() tea.Cmd { return tea.Batch(tick(), m.start, tea.RequestBackgroundColor) }
+// A working agent's mark spins, so that it does not look like one waiting for you.
+var (
+	spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	frame   int
+)
+
+type spinMsg struct{}
+
+func spin(every time.Duration) tea.Cmd {
+	return tea.Tick(every, func(time.Time) tea.Msg { return spinMsg{} })
+}
+
+// spinning: some agent on screen works. Otherwise the beat slows down: no need
+// to redraw eight times a second for nothing.
+func (m *model) spinning() bool {
+	for _, r := range m.rows {
+		if r.activity == "working" {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) Init() tea.Cmd {
+	return tea.Batch(tick(), spin(time.Second), m.start, tea.RequestBackgroundColor)
+}
 
 func (m *model) selected() *row {
 	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].d != nil {
@@ -220,6 +245,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case spinMsg:
+		if !m.spinning() {
+			return m, spin(time.Second)
+		}
+		frame++
+		return m, spin(120 * time.Millisecond)
 	case tickMsg:
 		m.reload()
 		m.save()
@@ -546,7 +577,7 @@ func stateStyle(s string) lipgloss.Style {
 func activityMark(a string) string {
 	switch a {
 	case "working":
-		return lipgloss.NewStyle().Foreground(cWorking).Render("◉")
+		return lipgloss.NewStyle().Foreground(cWorking).Render(spinner[frame%len(spinner)])
 	case "ready":
 		return lipgloss.NewStyle().Foreground(cWorking).Bold(true).Render("●")
 	case "idle":
@@ -649,11 +680,20 @@ func (m *model) topBar(width int) []string {
 		segs = append(segs, sMuted.Render("side"))
 	}
 	for _, sv := range m.stores {
-		c := sv.count
-		segs = append(segs, fmt.Sprintf("%s  %s  %s",
-			sBold.Render(sv.name),
-			stateStyle(dossier.Open).Render(fmt.Sprintf("%d open", c[dossier.Open])),
-			stateStyle(dossier.Waiting).Render(fmt.Sprintf("%d waiting", c[dossier.Waiting]))))
+		todo, quiet := 0, 0
+		for _, d := range sv.all {
+			if d.State == dossier.Open && d.NoAction {
+				quiet++
+			} else if d.State == dossier.Open {
+				todo++
+			}
+		}
+		seg := sBold.Render(sv.name) + "  " + stateStyle(dossier.Open).Render(fmt.Sprintf("%d to do", todo))
+		if quiet > 0 {
+			seg += "  " + sFaint.Render(fmt.Sprintf("%d no action", quiet))
+		}
+		seg += "  " + stateStyle(dossier.Waiting).Render(fmt.Sprintf("%d waiting", sv.count[dossier.Waiting]))
+		segs = append(segs, seg)
 	}
 	if n := m.forYou(); n > 0 {
 		segs = append(segs, lipgloss.NewStyle().Foreground(cWorking).Bold(true).Render(fmt.Sprintf("] %d for you", n)))

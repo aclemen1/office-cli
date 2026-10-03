@@ -195,7 +195,7 @@ func legendView(w int, add func(...string)) {
 
 	section("Agent, first mark of a row")
 	for _, a := range []struct{ act, text string }{
-		{"working", "working"},
+		{"working", "working (it spins)"},
 		{"ready", "your turn: the turn ended, it waits for you"},
 		{"idle", "idle"},
 		{"blocked", "asks a permission"},
