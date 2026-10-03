@@ -134,3 +134,20 @@ func TestLinksAreUnderlinedLightlyWithDots(t *testing.T) {
 		t.Fatalf("expected a dotted underline with its own colour: %q", s)
 	}
 }
+
+func TestTheFicheRendersItsMarkdown(t *testing.T) {
+	md := "\n## Instruction\n\nAlain traite ce point **ce week-end**.\n\n- premier point\n- second point\n"
+	out := renderNotes(md, 40)
+	plain := ansi.Strip(out)
+	if strings.Contains(plain, "##") || strings.Contains(plain, "**") || !strings.Contains(plain, "• premier point") {
+		t.Fatalf("not rendered: %q", plain)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if lipgloss.Width(l) > 40 {
+			t.Fatalf("a line is wider than the panel: %q", ansi.Strip(l))
+		}
+	}
+	if renderNotes(md, 40) != out || len(mdCache) == 0 {
+		t.Fatal("the rendering should come from the cache the second time")
+	}
+}

@@ -1152,8 +1152,8 @@ func dayMonthYear(ts string) string {
 	return ts
 }
 
-// renderNotes shows the Markdown body: headings bold, the rest wrapped.
-func renderNotes(md string, w int) string {
+// renderNotesPlain shows the Markdown body when glamour fails: headings bold, the rest wrapped.
+func renderNotesPlain(md string, w int) string {
 	var out []string
 	wrap := lipgloss.NewStyle().Width(w).Inherit(sText)
 	blank := false
