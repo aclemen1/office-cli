@@ -165,6 +165,7 @@ func legendView(w int, add func(...string)) {
 			{"j k  ↑ ↓", "move"}, {"gg  G", "top, end"},
 			{"]", "next agent that needs you: a permission, your turn, unread"},
 			{"[", "the agent whose conversation moved last"},
+			{"<  >", "show the previous or next dossier of the list"},
 			{"'", "back to the agent shown before"},
 			{"g d  (b)", "the desk"}, {"g p", "the placeholder"},
 			{"g i  g t  (t)", "active dossiers, to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},

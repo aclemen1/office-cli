@@ -414,9 +414,13 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 	}
 	var reports []IngestReport
 	if !dryRun {
+		if err := a.S.Lock(); err != nil {
+			return nil, err
+		}
 		if dl := a.Deadlines(time.Now()); dl.Events > 0 || len(dl.Errors) > 0 {
 			reports = append(reports, dl)
 		}
+		a.S.Unlock()
 	}
 	all, _ := a.All()
 	for _, src := range sources {
@@ -446,6 +450,13 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			for _, e := range res.Events {
 				rep.Skipped = append(rep.Skipped, "event "+e.ThreadRef+" · "+e.Kind)
 			}
+			reports = append(reports, rep)
+			continue
+		}
+		// The store is locked only to apply what the source sent: polling, which
+		// may take long, leaves it free for the TUI and the agents.
+		if err := a.S.Lock(); err != nil {
+			rep.Errors = append(rep.Errors, err.Error())
 			reports = append(reports, rep)
 			continue
 		}
@@ -521,6 +532,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 				rep.Errors = append(rep.Errors, err.Error())
 			}
 		}
+		a.S.Unlock()
 		reports = append(reports, rep)
 	}
 	if !dryRun {
@@ -530,9 +542,13 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 				handled[o.ID] = true
 			}
 		}
+		if err := a.S.Lock(); err != nil {
+			return reports, err
+		}
 		if rep := a.Reconcile(handled); rep.Events > 0 || len(rep.Skipped) > 0 || len(rep.Errors) > 0 {
 			reports = append(reports, rep)
 		}
+		a.S.Unlock()
 	}
 	return reports, nil
 }

@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"encoding/json"
+	"os"
+	"os/exec"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,11 +15,12 @@ import (
 // you, [ the one whose conversation moved last. In side mode the agent comes
 // to the TUI's right; otherwise its tab is focused.
 
-// open selects row i and shows its agent.
+// open selects row i and shows its agent. The focus follows when it was not
+// in the TUI: a key relayed by herdr from the docked agent keeps you there.
 func (m *model) open(i int) tea.Cmd {
 	m.cursor, m.scroll = i, 0
 	if m.side {
-		return m.dock(&m.rows[i], false)
+		return m.dock(&m.rows[i], !tuiFocused())
 	}
 	return m.key("enter")
 }
@@ -127,4 +131,43 @@ func (m *model) lastManifested() tea.Cmd {
 		return nil
 	}
 	return m.open(best)
+}
+
+// tuiFocused tells whether the TUI's pane has the focus. Tests replace it.
+var tuiFocused = func() bool {
+	pane := os.Getenv("HERDR_PANE_ID")
+	if pane == "" {
+		return true
+	}
+	out, err := exec.Command("herdr", "pane", "get", pane).Output()
+	if err != nil {
+		return true
+	}
+	var r struct {
+		Result struct {
+			Pane struct {
+				Focused bool `json:"focused"`
+			} `json:"pane"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(out, &r) != nil {
+		return true
+	}
+	return r.Result.Pane.Focused
+}
+
+// step shows the dossier above (-1) or below (+1) the current one: the docked
+// one in side mode, the selected one otherwise.
+func (m *model) step(dir int) tea.Cmd {
+	from := m.cursor
+	if i := m.rowOf(m.current()); i >= 0 {
+		from = i
+	}
+	for i := from + dir; i >= 0 && i < len(m.rows); i += dir {
+		if m.rows[i].d != nil {
+			return m.open(i)
+		}
+	}
+	m.status, m.statusErr = "no dossier further", false
+	return nil
 }

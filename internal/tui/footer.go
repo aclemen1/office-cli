@@ -74,6 +74,7 @@ func (m *model) footer() []keyGroup {
 		nav = append(nav, [2]string{"]", "needs you"})
 	}
 	nav = append(nav, [2]string{"[", "latest"})
+	nav = append(nav, [2]string{"< >", "previous, next dossier"})
 	if m.lastDocked.id != "" {
 		nav = append(nav, [2]string{"'", "back"})
 	}

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -150,14 +151,23 @@ func Init(root, sphere string, makeDefault bool) (*Store, error) {
 }
 
 // Lock takes the store-wide lock for mutating operations.
+// LockWait is how long Lock waits for another command to release the store.
+var LockWait = 30 * time.Second
+
 func (s *Store) Lock() error {
 	f, err := os.OpenFile(s.Meta("lock"), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return spec.Locked("the store %s is busy with another dossier command; retry in a moment", s.Root)
+	// Wait a while for the other command: a TUI dock should not fail because
+	// an ingest or an agent's tool call holds the store for a moment.
+	deadline := time.Now().Add(LockWait)
+	for syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		if time.Now().After(deadline) {
+			f.Close()
+			return spec.Locked("the store %s is busy with another dossier command; retry in a moment", s.Root)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	s.lock = f
 	return nil

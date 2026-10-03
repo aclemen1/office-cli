@@ -121,6 +121,7 @@ type view struct {
 	byPriority bool   // what needs you first, instead of by number
 	agentsView bool   // only the agents that no dossier holds
 	starred    bool   // only the starred dossiers
+	docked     string // root|id of the agent shown at the right
 }
 
 func load(roots []string, v view) ([]row, []*storeView, []string) {
@@ -270,7 +271,7 @@ func treeRows(sv *storeView, ds []*dossier.Dossier, live map[string]string, v vi
 		now := time.Now()
 		for _, d := range ds {
 			if visible[d.ID] {
-				own[d.ID] = urgencyOf(d, app.Activity(d, live), now)
+				own[d.ID] = urgencyOf(d, rankActivity(d, live, sv, v), now)
 				ids = append(ids, d.ID)
 			}
 		}
@@ -445,4 +446,15 @@ var agentsNow = app.Agents
 // is the one sign.
 func unreadOf(sv *storeView, d *dossier.Dossier, activity string) bool {
 	return activity == "ready"
+}
+
+// rankActivity is the activity the priority order sees. The agent shown at
+// the right keeps its rank while you look at it: herdr marks it seen, and it
+// would otherwise drop under your eyes.
+func rankActivity(d *dossier.Dossier, live map[string]string, sv *storeView, v view) string {
+	a := app.Activity(d, live)
+	if v.docked != "" && v.docked == sv.root+"|"+d.ID && a == "idle" {
+		return "ready"
+	}
+	return a
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func isolate(t *testing.T) string {
@@ -125,6 +126,9 @@ func TestNewDirIsAtomicAndFindDirAcceptsEveryForm(t *testing.T) {
 
 func TestLockIsExclusive(t *testing.T) {
 	isolate(t)
+	old := LockWait
+	LockWait = 200 * time.Millisecond
+	t.Cleanup(func() { LockWait = old })
 	s, _ := Init(filepath.Join(t.TempDir(), "s"), "s", false)
 	other, _ := Open(s.Root)
 	if err := s.Lock(); err != nil {
@@ -133,9 +137,9 @@ func TestLockIsExclusive(t *testing.T) {
 	if err := other.Lock(); err == nil {
 		t.Fatal("second lock should fail")
 	}
-	s.Unlock()
+	go func() { time.Sleep(50 * time.Millisecond); s.Unlock() }()
 	if err := other.Lock(); err != nil {
-		t.Fatalf("lock not released: %v", err)
+		t.Fatalf("a lock released meanwhile should be taken: %v", err)
 	}
 	other.Unlock()
 }

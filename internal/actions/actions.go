@@ -781,7 +781,7 @@ func init() {
 		},
 		Examples: []string{"dossier ingest", "dossier ingest gmail", "dossier ingest gmail --dry-run"},
 		Run: func(ctx *spec.Context) (any, error) {
-			return withApp(ctx, true, func(a *app.App) (any, error) {
+			return withApp(ctx, false, func(a *app.App) (any, error) {
 				return a.Ingest(ctx.List("source"), connector.PollOptions{DryRun: ctx.Bool("dry-run"), Now: ctx.Bool("now")})
 			})
 		},

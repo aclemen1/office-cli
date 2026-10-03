@@ -197,8 +197,30 @@ func (d *Dossier) SetBody(b string) { d.body = b }
 
 // Save rewrites dossier.md and .state.json. Keys dossier does not know and the
 // body are preserved as they are.
+// The timestamp moves only when dossier.md changes: saving machine state alone
+// (a session, a dock) must not make the dossier look updated.
 func (d *Dossier) Save() error {
-	d.Updated = Now()
+	content, err := d.render()
+	if err != nil {
+		return err
+	}
+	if old, err := os.ReadFile(d.Path("dossier.md")); err != nil || string(old) != content {
+		d.Updated = Now()
+		if content, err = d.render(); err != nil {
+			return err
+		}
+		if err := writeAtomic(d.Path("dossier.md"), []byte(content)); err != nil {
+			return err
+		}
+	}
+	if d.Run.PendingTransitions == nil {
+		d.Run.PendingTransitions = []Transition{}
+	}
+	b, _ := json.MarshalIndent(d.Run, "", "  ")
+	return writeAtomic(d.Path(".state.json"), append(b, '\n'))
+}
+
+func (d *Dossier) render() (string, error) {
 	set := func(key string, v any) { setKey(d.doc, key, v) }
 	set("type", "Dossier")
 	set("id", d.ID)
@@ -222,17 +244,9 @@ func (d *Dossier) Save() error {
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(d.doc); err != nil {
-		return err
+		return "", err
 	}
-	content := "---\n" + buf.String() + "---\n" + d.body
-	if err := writeAtomic(d.Path("dossier.md"), []byte(content)); err != nil {
-		return err
-	}
-	if d.Run.PendingTransitions == nil {
-		d.Run.PendingTransitions = []Transition{}
-	}
-	b, _ := json.MarshalIndent(d.Run, "", "  ")
-	return writeAtomic(d.Path(".state.json"), append(b, '\n'))
+	return "---\n" + buf.String() + "---\n" + d.body, nil
 }
 
 func isEmpty(v any) bool {

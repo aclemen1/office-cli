@@ -75,6 +75,7 @@ type model struct {
 	docking         bool    // a dock or undock runs
 	wantDock        *docked // asked for while one ran
 	wantFocus       bool
+	dockedReady     bool       // the docked agent waited for you when it came: it keeps that rank
 	start           tea.Cmd    // run once the program starts: docks the agent docked last time
 	saved           savedState // last state written
 	sideRatio       float64    // the TUI's share of the width in side mode, 0 for the default
@@ -108,7 +109,7 @@ func (m *model) reload() {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		key = m.rows[m.cursor].key()
 	}
-	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView})
+	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView, docked: m.dockedKey()})
 	m.syncDocked()
 	// The agent shown at the right is being looked at.
 	for i := range m.rows {
@@ -352,6 +353,10 @@ func (m *model) key(k string) tea.Cmd {
 		return m.toggleLast()
 	case "]":
 		return m.nextAttention()
+	case ">":
+		return m.step(1)
+	case "<":
+		return m.step(-1)
 	case "[":
 		return m.lastManifested()
 	case "b":

@@ -470,3 +470,69 @@ func TestDocksRunOneAtATimeAndTheLastAskWins(t *testing.T) {
 		t.Fatalf("when the first is done, only the last ask runs: docked %s", m.docked.id)
 	}
 }
+
+func TestTheFocusFollowsWhenTheKeyCameFromTheAgent(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	m := &model{side: true, placeholder: "w1:p9", docking: true, rows: []row{
+		{store: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "ready"},
+	}}
+	old := tuiFocused
+	t.Cleanup(func() { tuiFocused = old })
+	tuiFocused = func() bool { return true }
+	m.key("]")
+	if m.wantFocus {
+		t.Fatal("] typed in the TUI keeps the focus there")
+	}
+	tuiFocused = func() bool { return false }
+	m.key("]")
+	if !m.wantFocus {
+		t.Fatal("] relayed from the docked agent: the focus follows to the new agent")
+	}
+}
+
+func TestAngleBracketsShowTheNeighbourDossier(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	mk := func(id string) row {
+		return row{store: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: "idle"}
+	}
+	m := &model{side: true, placeholder: "w1:p9", rows: []row{mk("D-1"), {}, mk("D-2"), mk("D-3")}, docked: docked{"/s", "D-2"}}
+	m.key(">")
+	if m.docked.id != "D-3" {
+		t.Fatalf("> from D-2: %s", m.docked.id)
+	}
+	m.dockDone()
+	m.key("<")
+	m.dockDone()
+	m.key("<")
+	if m.docked.id != "D-1" {
+		t.Fatalf("< twice from D-3 skips the spacer: %s", m.docked.id)
+	}
+}
+
+func TestTheShownAgentKeepsItsRank(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	d := &dossier.Dossier{ID: "D-1", State: dossier.Open, Run: dossier.RunState{Session: "x", PaneID: "p"}}
+	live := map[string]string{"p": "unknown"}
+	if rankActivity(d, live, sv, view{}) != "idle" {
+		t.Fatal("not shown: its own activity")
+	}
+	if rankActivity(d, live, sv, view{docked: "/s|D-1"}) != "ready" {
+		t.Fatal("shown at the right: it keeps the your-turn rank")
+	}
+}
+
+func TestOnlyAnAgentThatWaitedKeepsTheTopRank(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	idle := row{store: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "idle"}
+	ready := row{store: sv, d: &dossier.Dossier{ID: "D-2", Run: dossier.RunState{Session: "y"}}, activity: "ready"}
+	m := &model{side: true, placeholder: "w1:p9"}
+	m.dock(&idle, false)
+	if m.dockedKey() != "" {
+		t.Fatal("an idle agent shown at the right must not jump to the top")
+	}
+	m.dockDone()
+	m.dock(&ready, false)
+	if m.dockedKey() != "/s|D-2" {
+		t.Fatal("an agent that waited for you keeps its rank while shown")
+	}
+}

@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aclemen1/dossier-cli/internal/connector"
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 	"github.com/aclemen1/dossier-cli/internal/store"
 )
@@ -73,4 +75,21 @@ func TestProjectDirFollowsClaudeCodesNaming(t *testing.T) {
 	if got := filepath.Base(projectDir("/Users/x/dossiers/pro/0035-home-nfs")); got != "-Users-x-dossiers-pro-0035-home-nfs" {
 		t.Fatalf("project dir %s", got)
 	}
+}
+
+func TestIngestLeavesTheStoreFreeWhilePolling(t *testing.T) {
+	f := newFixture(t)
+	f.setMode("slow")
+	old := store.LockWait
+	store.LockWait = time.Second
+	t.Cleanup(func() { store.LockWait = old })
+	done := make(chan struct{})
+	go func() { f.a.Ingest(nil, connector.PollOptions{Now: true}); close(done) }()
+	time.Sleep(500 * time.Millisecond)
+	other, _ := store.Open(f.a.S.Root)
+	if err := other.Lock(); err != nil {
+		t.Fatalf("a slow source keeps the store locked: %v", err)
+	}
+	other.Unlock()
+	<-done
 }

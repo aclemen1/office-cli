@@ -99,6 +99,7 @@ func (m *model) dock(r *row, focus bool) tea.Cmd {
 		m.lastDocked = prev
 	}
 	m.docked = next
+	m.dockedReady = r.activity == "ready" || r.activity == "blocked"
 	m.status, m.statusErr = r.d.Label()+": docking its agent…", false
 	return func() tea.Msg {
 		if prev.id != "" {
@@ -265,4 +266,11 @@ func (m *model) syncDocked() {
 			}
 		}
 	}
+}
+
+func (m *model) dockedKey() string {
+	if !m.side || m.docked.id == "" || !m.dockedReady {
+		return ""
+	}
+	return m.docked.root + "|" + m.docked.id
 }

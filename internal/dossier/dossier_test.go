@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newSaved(t *testing.T) *Dossier {
@@ -125,5 +126,26 @@ func TestUnterminatedFrontmatterIsAnError(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "dossier.md"), []byte("---\ntype: Dossier\n"), 0o644)
 	if _, err := Load(dir); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestSavingMachineStateKeepsTheTimestamp(t *testing.T) {
+	d := Create(t.TempDir(), "D-0001", "Affaire")
+	if err := d.Save(); err != nil {
+		t.Fatal(err)
+	}
+	before := d.Updated
+	time.Sleep(1100 * time.Millisecond)
+	d.Run.PaneID, d.Run.Home = "w5:p1", "w61"
+	if err := d.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := Load(d.Dir); again.Updated != before || again.Run.PaneID != "w5:p1" {
+		t.Fatalf("a dock saved: timestamp %s → %s, pane %q", before, again.Updated, again.Run.PaneID)
+	}
+	d.Title = "Autre affaire"
+	d.Save()
+	if again, _ := Load(d.Dir); again.Updated == before {
+		t.Fatal("a real change should move the timestamp")
 	}
 }
