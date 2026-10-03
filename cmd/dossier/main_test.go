@@ -20,7 +20,9 @@ func fakeHerdr(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
 	script := "#!/bin/sh\ncase \"$1 $2\" in\n\"pane list\") echo '{\"result\":{\"panes\":[]}}' ;;\n" +
-		"\"workspace list\") echo '{\"result\":{\"workspaces\":[]}}' ;;\n*) echo '{}' ;;\nesac\n"
+		"\"workspace list\") echo '{\"result\":{\"workspaces\":[]}}' ;;\n" +
+		"\"pane get\") echo '{\"result\":{\"pane\":{\"pane_id\":\"'\"$3\"'\",\"tab_id\":\"t\"}}}' ;;\n" +
+		"\"pane send-keys\") echo \"$@\" >> \"$HERDR_LOG\"; echo '{}' ;;\n*) echo '{}' ;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +176,24 @@ func TestMoveFromTheCLIByPrefixAndSphere(t *testing.T) {
 	}
 	if rows := s(perso, "ls", "--status", "all")["result"].([]any); len(rows) != 0 {
 		t.Fatalf("perso still holds %v", rows)
+	}
+}
+
+func TestTuiKeyTypesIntoTheRunningTUI(t *testing.T) {
+	setup(t)
+	log := filepath.Join(t.TempDir(), "herdr.log")
+	t.Setenv("HERDR_LOG", log)
+	if code, _ := call(t, "tui-key", "]", "--format", "json"); code == 0 {
+		t.Fatal("no TUI runs: tui-key should say so")
+	}
+	cfg, _ := os.UserConfigDir()
+	os.MkdirAll(filepath.Join(cfg, "dossier"), 0o755)
+	os.WriteFile(filepath.Join(cfg, "dossier", "tui.json"), []byte(`{"/s":{"by_priority":true,"side":true,"pane":"w5T:p9"}}`), 0o644)
+	if code, env := call(t, "tui-key", "g", "p", "--format", "json"); code != 0 {
+		t.Fatalf("tui-key: %v", env)
+	}
+	b, _ := os.ReadFile(log)
+	if got := strings.TrimSpace(string(b)); got != "pane send-keys w5T:p9 g\npane send-keys w5T:p9 p" {
+		t.Fatalf("keys sent %q", got)
 	}
 }

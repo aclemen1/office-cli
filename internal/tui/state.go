@@ -2,11 +2,15 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/aclemen1/dossier-cli/internal/app"
+	"github.com/aclemen1/dossier-cli/internal/spec"
 )
 
 // The TUI's state lives in the user's config directory, one entry per root,
@@ -30,6 +34,7 @@ type savedState struct {
 	Docked      savedDock `json:"docked,omitempty"`
 	LastDocked  savedDock `json:"last_docked,omitempty"`
 	SideRatio   float64   `json:"side_ratio,omitempty"` // the TUI's share of the width in side mode
+	Pane        string    `json:"pane,omitempty"`       // the herdr pane of the running TUI, for dossier tui-key
 	AgentsView  bool      `json:"agents_view,omitempty"`
 	StarredView bool      `json:"starred_view,omitempty"`
 }
@@ -62,6 +67,9 @@ func (m *model) state() savedState {
 	s := savedState{All: m.all, Todo: m.todo, ByPerson: m.byPerson, ByPriority: m.byPriority, NoDetail: m.noDetail, Layout: m.layout,
 		Filter: m.filter, Side: m.side, Docked: savedDock{m.docked.root, m.docked.id}, LastDocked: savedDock{m.lastDocked.root, m.lastDocked.id}}
 	s.SideRatio = m.sideRatio
+	if !m.quitting {
+		s.Pane = os.Getenv("HERDR_PANE_ID")
+	}
 	s.AgentsView = m.agentsView
 	s.StarredView = m.starredView
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
@@ -159,4 +167,24 @@ func measureRatio(tui string) float64 {
 		}
 	}
 	return 0
+}
+
+// SendKeys types keys into the running TUI, as if the user had: herdr key
+// bindings use it to drive the TUI while the focus is elsewhere.
+func SendKeys(keys []string) error {
+	for _, s := range readStates() {
+		if s.Pane == "" {
+			continue
+		}
+		if _, err := app.PaneTab(s.Pane); err != nil {
+			continue
+		}
+		for _, k := range keys {
+			if out, err := exec.Command("herdr", "pane", "send-keys", s.Pane, k).CombinedOutput(); err != nil {
+				return fmt.Errorf("herdr pane send-keys %s %s: %v: %s", s.Pane, k, err, out)
+			}
+		}
+		return nil
+	}
+	return spec.UserError("no dossier TUI is running in a herdr pane")
 }

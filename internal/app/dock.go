@@ -160,8 +160,11 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string, focus bool) error {
 			return err
 		}
 	}
+	// Another dossier holds the place, e.g. after keys pressed faster than docks ran: it goes home.
 	if other := a.holderOf(placeholder); other != nil && other.ID != d.ID {
-		return spec.UserError("%s holds the place of placeholder %s: undock it first", other.Label(), placeholder)
+		if err := a.Undock(other); err != nil {
+			return err
+		}
 	}
 	if err := a.ensureRunning(d, false); err != nil {
 		return err

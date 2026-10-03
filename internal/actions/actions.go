@@ -658,6 +658,16 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
+		Category: "store", Name: "tui-key", Summary: "Type keys into the running TUI, e.g. from a herdr key binding while the focus is in an agent.",
+		Discussion: "The TUI records its herdr pane while it runs. Each argument is one key as herdr send-keys names it: ], [, ', h, g p (two keys).",
+		Params:     []spec.Param{{Name: "keys", Kind: spec.StringList, Positional: true, Required: true, Help: "Keys, in order."}},
+		Examples:   []string{"dossier tui-key ]", "dossier tui-key g p"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return map[string]any{"sent": ctx.List("keys")}, tui.SendKeys(ctx.List("keys"))
+		},
+	})
+
+	spec.Register(&spec.Action{
 		Category: "store", Name: "herdr-view", Summary: "Hide the stores' agents from herdr's agent list, except those that wait for you.",
 		Discussion: "Sets herdr's agent view (agent.view.set, source dossier) on the workspaces named by --workspace in each store's [acp] command. " +
 			"An agent there stays listed while it asks a permission or waits for your turn, or when its workspace is on screen. " +

@@ -71,10 +71,14 @@ type model struct {
 	side            bool // enter docks the agent at the TUI's right
 	placeholder     string
 	docked          docked
-	lastDocked      docked     // the one before, for '
+	lastDocked      docked  // the one before, for '
+	docking         bool    // a dock or undock runs
+	wantDock        *docked // asked for while one ran
+	wantFocus       bool
 	start           tea.Cmd    // run once the program starts: docks the agent docked last time
 	saved           savedState // last state written
 	sideRatio       float64    // the TUI's share of the width in side mode, 0 for the default
+	quitting        bool       // the last save forgets the pane: no TUI to send keys to
 	convs           map[string]convAt
 	status          string
 	statusErr       bool
@@ -105,6 +109,7 @@ func (m *model) reload() {
 		key = m.rows[m.cursor].key()
 	}
 	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView})
+	m.syncDocked()
 	// The agent shown at the right is being looked at.
 	for i := range m.rows {
 		if r := m.rows[i]; m.side && r.d != nil && r.store.root == m.docked.root && r.d.ID == m.docked.id {
@@ -237,6 +242,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status, m.statusErr = firstLine(msg.out, msg.id+": done"), false
 		}
 		m.reload()
+		if msg.verb == "dock" || msg.verb == "undock" {
+			return m, m.dockDone()
+		}
 	case tea.MouseMsg:
 		if m.ask == nil && !m.typing {
 			return m, m.mouse(msg)
@@ -352,6 +360,7 @@ func (m *model) key(k string) tea.Cmd {
 		m.legend = !m.legend
 		m.scroll = 0
 	case "q", "ctrl+c":
+		m.quitting = true
 		m.save()
 		if m.side {
 			return tea.Sequence(m.leaveSide(), tea.Quit)

@@ -163,3 +163,23 @@ func TestOpeningTheDockedDossierOnlyFocusesIt(t *testing.T) {
 		t.Fatalf("calls %q", got)
 	}
 }
+
+func TestDockingInAnOccupiedPlaceSendsTheHolderHome(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Un"})
+	f.a.Open(OpenParams{Title: "Deux"})
+	fakeHerdr(t)
+	one, two := mustGet(t, f, "1"), mustGet(t, f, "2")
+	if err := f.a.Dock(one, "ph", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.a.Dock(two, "ph", false); err != nil {
+		t.Fatalf("the place is taken: %v", err)
+	}
+	if one = mustGet(t, f, "1"); one.Run.Home != "" {
+		t.Fatalf("the first holder should be home: %+v", one.Run)
+	}
+	if two = mustGet(t, f, "2"); two.Run.Placeholder != "ph" {
+		t.Fatalf("the second should hold the place: %+v", two.Run)
+	}
+}

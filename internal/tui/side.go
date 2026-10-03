@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/aclemen1/dossier-cli/internal/app"
+	"github.com/aclemen1/dossier-cli/internal/dossier"
 )
 
 // Side mode keeps a placeholder pane at the TUI's right; enter puts the
@@ -75,6 +76,14 @@ func (m *model) leaveSide() tea.Cmd {
 // dock shows the row's agent in place of the placeholder, after sending the
 // one docked before back home.
 func (m *model) dock(r *row, focus bool) tea.Cmd {
+	// One dock at a time: keys pressed meanwhile come down to the last one,
+	// which runs when the current one is done.
+	if m.docking {
+		m.wantDock, m.wantFocus = &docked{r.store.root, r.d.ID}, focus
+		m.status, m.statusErr = r.d.Label()+": next, once the current dock is done", false
+		return nil
+	}
+	m.docking = true
 	args := []string{"--placeholder", m.placeholder}
 	if !focus {
 		args = append(args, "--no-focus")
@@ -173,6 +182,7 @@ func (m *model) sendHome() tea.Cmd {
 	}
 	prev, placeholder := m.docked, m.placeholder
 	m.docked, m.lastDocked = docked{}, prev
+	m.docking = true
 	m.status, m.statusErr = prev.id+": sending its agent home…", false
 	return func() tea.Msg {
 		out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").CombinedOutput()
@@ -225,4 +235,34 @@ func (m *model) toPlaceholder() {
 		return
 	}
 	_ = exec.Command("herdr", "tab", "focus", tab).Run()
+}
+
+// dockDone ends a dock or undock and runs the one asked for meanwhile.
+func (m *model) dockDone() tea.Cmd {
+	m.docking = false
+	want := m.wantDock
+	m.wantDock = nil
+	if want == nil {
+		return nil
+	}
+	if i := m.rowOf(*want); i >= 0 {
+		return m.dock(&m.rows[i], m.wantFocus)
+	}
+	return nil
+}
+
+// syncDocked reads which agent holds the placeholder's place from the stores:
+// the TUI's own idea can lag behind docks run by others or that failed.
+func (m *model) syncDocked() {
+	if !m.side || m.placeholder == "" || m.docking {
+		return
+	}
+	m.docked = docked{}
+	for _, sv := range m.stores {
+		for _, d := range append(append([]*dossier.Dossier{}, sv.all...), sv.a.Desk()) {
+			if d.Run.Home != "" && d.Run.Placeholder == m.placeholder {
+				m.docked = docked{sv.root, d.ID}
+			}
+		}
+	}
 }

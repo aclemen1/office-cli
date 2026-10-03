@@ -293,6 +293,7 @@ func TestNavigationGoesWhereYouAreNeeded(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		m.key("]")
 		got = append(got, m.docked.id)
+		m.dockDone()
 	}
 	if strings.Join(got, ",") != "D-4,D-2,D-3,D-4" {
 		t.Fatalf("] order %v: permission, your turn, unread, then around", got)
@@ -300,10 +301,12 @@ func TestNavigationGoesWhereYouAreNeeded(t *testing.T) {
 	if m.forYou() != 2 {
 		t.Fatalf("for you %d", m.forYou())
 	}
+	m.dockDone()
 	m.key("'")
 	if m.docked.id != "D-3" {
 		t.Fatalf("' should go back to D-3, got %s", m.docked.id)
 	}
+	m.dockDone()
 	m.key("'")
 	if m.docked.id != "D-4" {
 		t.Fatalf("' again should toggle to D-4, got %s", m.docked.id)
@@ -433,5 +436,37 @@ func TestStarredDossiersComeFirstAndStayAtHand(t *testing.T) {
 		if r.d != nil && r.d.Title == "Trois" && !strings.Contains(m.rowView(r, false, 80), "⭐") {
 			t.Fatal("a starred row shows a star")
 		}
+	}
+}
+
+func TestTheTUIRecordsItsPaneUntilItQuits(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HERDR_PANE_ID", "w5T:p9")
+	m := &model{root: "/s"}
+	m.save()
+	if s := loadState("/s"); s.Pane != "w5T:p9" {
+		t.Fatalf("pane %q", s.Pane)
+	}
+	m.key("q")
+	if s := loadState("/s"); s.Pane != "" {
+		t.Fatalf("a quit TUI keeps its pane: %q", s.Pane)
+	}
+}
+
+func TestDocksRunOneAtATimeAndTheLastAskWins(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	mk := func(id string) row {
+		return row{store: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: "idle"}
+	}
+	m := &model{side: true, placeholder: "w1:p9", rows: []row{mk("D-1"), mk("D-2"), mk("D-3")}}
+	if cmd := m.dock(&m.rows[0], false); cmd == nil || m.docked.id != "D-1" {
+		t.Fatal("the first dock runs at once")
+	}
+	if cmd := m.dock(&m.rows[1], false); cmd != nil {
+		t.Fatal("a second dock must wait for the first")
+	}
+	m.dock(&m.rows[2], true)
+	if cmd := m.dockDone(); cmd == nil || m.docked.id != "D-3" || m.wantDock != nil {
+		t.Fatalf("when the first is done, only the last ask runs: docked %s", m.docked.id)
 	}
 }
