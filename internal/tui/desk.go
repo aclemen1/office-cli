@@ -171,6 +171,7 @@ func legendView(w int, add func(...string)) {
 			{"g i  g t  (t)", "active dossiers, to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},
 			{"g s", "starred dossiers"}, {"g n", "agents running without a dossier"},
 			{"/  esc", "filter, clear it"}, {"J K", "scroll the detail panel"},
+			{"f", "the detail panel's links: j k choose, enter opens (a dossier, a file, an address); a click opens too"},
 		}},
 		{"View", [][2]string{
 			{"v", "side mode: agents open at the TUI's right"},

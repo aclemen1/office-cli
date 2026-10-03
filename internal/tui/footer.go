@@ -17,6 +17,9 @@ func (m *model) footer() []keyGroup {
 			{"", [][2]string{{"esc", "cancel"}}},
 		}
 	}
+	if m.linkMode {
+		return []keyGroup{{"links", [][2]string{{"j k", "next, previous"}, {"enter", "open"}, {"esc", "back to the list"}}}}
+	}
 	var item, agent [][2]string
 	r := m.selected()
 	switch {
@@ -79,6 +82,9 @@ func (m *model) footer() []keyGroup {
 		nav = append(nav, [2]string{"'", "back"})
 	}
 	nav = append(nav, [2]string{"/", "filter"})
+	if len(m.links) > 0 {
+		nav = append(nav, [2]string{"f", "open a link"})
+	}
 	if m.detailOverflows && (!m.noDetail || m.legend) {
 		nav = append(nav, [2]string{"J K", "scroll detail"})
 	}

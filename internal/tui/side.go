@@ -132,6 +132,9 @@ func (m *model) mouse(ev tea.MouseMsg) tea.Cmd {
 		return nil
 	case isLeftRelease(ev):
 		if !inList {
+			if l, ok := m.linkAt(msg.Y); ok {
+				return m.openLink(l)
+			}
 			return nil
 		}
 	default:

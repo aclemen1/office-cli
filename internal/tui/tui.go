@@ -75,7 +75,11 @@ type model struct {
 	docking         bool    // a dock or undock runs
 	wantDock        *docked // asked for while one ran
 	wantFocus       bool
-	dockedReady     bool       // the docked agent waited for you when it came: it keeps that rank
+	dockedReady     bool         // the docked agent waited for you when it came: it keeps that rank
+	links           []detailLink // what the detail panel can open, set by detailView
+	linkMode        bool         // f: keys move between the links
+	linkSel         int
+	detailTop       int        // screen line of the detail panel's first content line
 	start           tea.Cmd    // run once the program starts: docks the agent docked last time
 	saved           savedState // last state written
 	sideRatio       float64    // the TUI's share of the width in side mode, 0 for the default
@@ -351,6 +355,19 @@ func (m *model) key(k string) tea.Cmd {
 	}
 	if k == "g" {
 		m.gPending = true
+		return nil
+	}
+	if m.linkMode {
+		if cmd, handled := m.linkKey(k); handled {
+			return cmd
+		}
+	}
+	if k == "f" {
+		if len(m.links) == 0 {
+			m.status, m.statusErr = "nothing to open in the detail panel", false
+			return nil
+		}
+		m.linkMode, m.linkSel = true, 0
 		return nil
 	}
 	if to, ok := aliases[k]; ok {
@@ -636,6 +653,7 @@ func (m *model) render() string {
 		dw := m.width - lw - 3
 		m.listW, m.listH = lw, h
 		list := m.listView(lw, h)
+		m.detailTop = m.listY + 2
 		det := sPanel.Width(dw - 2).Height(h - 2).Render(m.detailView(dw-8, h-4))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", det)
 	case show && h >= 12:
@@ -643,6 +661,7 @@ func (m *model) render() string {
 		dh := h - lh
 		m.listW, m.listH = m.width, lh
 		list := m.listView(m.width, lh)
+		m.detailTop = m.listY + lh + 2
 		det := sPanel.Width(m.width - 4).Height(dh - 2).Render(m.detailView(m.width-10, dh-4))
 		body = lipgloss.JoinVertical(lipgloss.Left, list, det)
 	default:
@@ -940,6 +959,7 @@ func ago(t time.Time) string {
 }
 
 func (m *model) detailView(w, h int) string {
+	m.links = nil
 	// The last column is kept for the scrollbar.
 	m.detailW, w = w, w-1
 	r := m.selected()
@@ -963,6 +983,12 @@ func (m *model) detailView(w, h int) string {
 		return m.window(lines, h)
 	}
 	d := r.d
+	m.links = nil
+	addLink := func(text string, l detailLink) {
+		l.line = len(lines)
+		add(m.linkLine(text, l, w))
+		m.links = append(m.links, l)
+	}
 	wrap := lipgloss.NewStyle().Width(w)
 	label := lipgloss.NewStyle().Foreground(cMuted).Width(12)
 	field := func(name, value string) { add(label.Render(name) + value) }
@@ -1014,7 +1040,7 @@ func (m *model) detailView(w, h int) string {
 			}
 		}
 		for _, l := range ls {
-			add(edge(strings.Join(l.rels, " · "), relW, l.id, l.title, l.state, w))
+			addLink(edge(strings.Join(l.rels, " · "), relW, l.id, l.title, l.state, w), detailLink{kind: "dossier", target: l.id})
 		}
 	}
 
@@ -1026,7 +1052,11 @@ func (m *model) detailView(w, h int) string {
 				add(sMuted.Render("  " + truncate(s.Title, w-2)))
 			}
 			if s.Resource != "" {
-				add(sMuted.Render("  " + truncate(s.Resource, w-2)))
+				if isAddress(s.Resource) {
+					addLink("  "+link(sMuted).Render(truncate(s.Resource, w-4)), detailLink{kind: "url", target: s.Resource})
+				} else {
+					add(sMuted.Render("  " + truncate(s.Resource, w-2)))
+				}
 			}
 		}
 		for _, t := range d.Threads {
@@ -1044,7 +1074,7 @@ func (m *model) detailView(w, h int) string {
 	if files := filesOf(d); len(files) > 0 {
 		section("Files")
 		for _, f := range files {
-			add(sText.Render(truncate(f, w)))
+			addLink(link(sText).Render(truncate(f, w)), detailLink{kind: "file", target: d.Path(f)})
 		}
 	}
 
@@ -1065,6 +1095,14 @@ func (m *model) detailView(w, h int) string {
 
 // window shows the detail lines from the scroll position.
 func (m *model) window(lines []string, h int) string {
+	// In link mode, the chosen link stays in view.
+	if m.linkMode && m.linkSel < len(m.links) {
+		if l := m.links[m.linkSel].line; l < m.scroll {
+			m.scroll = l
+		} else if l >= m.scroll+h {
+			m.scroll = l - h + 1
+		}
+	}
 	if max := len(lines) - h; m.scroll > max {
 		m.scroll = max
 	}
@@ -1152,8 +1190,8 @@ func filesOf(d *dossier.Dossier) []string {
 }
 
 func edge(rels string, relW int, id, title, state string, w int) string {
-	head := sMuted.Render(rels+strings.Repeat(" ", relW-lipgloss.Width(rels))+"   ") + sBold.Render(id) + "  "
+	head := sMuted.Render(rels+strings.Repeat(" ", relW-lipgloss.Width(rels))+"   ") + link(sBold).Render(id) + "  "
 	st := stateStyle(state).Render(state)
 	room := w - lipgloss.Width(head) - lipgloss.Width(st) - 2
-	return head + sText.Render(truncate(title, room)) + "  " + st
+	return head + link(sText).Render(truncate(title, room)) + "  " + st
 }

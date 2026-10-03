@@ -127,3 +127,10 @@ func TestTheHeaderTellsToDoFromNoAction(t *testing.T) {
 		t.Fatalf("header %q", got)
 	}
 }
+
+func TestLinksAreUnderlinedLightlyWithDots(t *testing.T) {
+	s := link(sText).Render("0001-mail.md")
+	if !strings.Contains(s, "4:4") || !strings.Contains(s, "58;") {
+		t.Fatalf("expected a dotted underline with its own colour: %q", s)
+	}
+}

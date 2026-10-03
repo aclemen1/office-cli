@@ -556,3 +556,53 @@ func TestAWorkingAgentSpins(t *testing.T) {
 		t.Fatal("an agent works: the mark spins")
 	}
 }
+
+func TestTheDetailPanelsLinksOpen(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	a := &app.App{S: s}
+	a.Open(app.OpenParams{Title: "Séance", SourceRef: "fake:x/1", URL: "https://example.test/1", NoStart: true})
+	a.Open(app.OpenParams{Title: "Point", NoStart: true})
+	a.Link("1", "2", dossier.RelIncludes)
+	d, _ := a.Load("1")
+	os.MkdirAll(d.Path("context"), 0o755)
+	os.WriteFile(d.Path("context", "0001-mail.md"), []byte("x"), 0o644)
+	var opened []string
+	old := openExternal
+	t.Cleanup(func() { openExternal = old })
+	openExternal = func(target string) error { opened = append(opened, target); return nil }
+
+	m := &model{roots: store.Discover(root), byPriority: false}
+	m.reload()
+	for i, r := range m.rows {
+		if r.d != nil && r.d.Title == "Séance" {
+			m.cursor = i
+		}
+	}
+	m.detailView(80, 200)
+	var kinds []string
+	for _, l := range m.links {
+		kinds = append(kinds, l.kind)
+	}
+	if strings.Join(kinds, ",") != "dossier,url,file" {
+		t.Fatalf("links %v", kinds)
+	}
+	m.key("f")
+	m.key("j")
+	m.key("enter")
+	if len(opened) != 1 || opened[0] != "https://example.test/1" {
+		t.Fatalf("opened %v", opened)
+	}
+	m.detailView(80, 200)
+	m.key("f")
+	m.key("enter")
+	if r := m.selected(); r == nil || r.d.Title != "Point" {
+		t.Fatal("enter on a linked dossier selects it in the list")
+	}
+	m.detailTop, m.scroll = 10, 0
+	m.detailView(80, 200)
+	if l, ok := m.linkAt(10 + m.links[0].line); !ok || l != m.links[0] {
+		t.Fatal("a click on a link's line finds the link")
+	}
+}
