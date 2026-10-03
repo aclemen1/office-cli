@@ -37,6 +37,7 @@ store's prefix: P-0042 and U-0042 are in different stores.
 | Wait on someone outside | `dossier wait <id> --on "<who>" [--until 2026-10-15\|7d]` |
 | Nothing to do for now | `dossier park <id> --note "…"` |
 | Keep a dossier at hand, when the user asks | `dossier star <id>` (`unstar` removes it) |
+| Move dossiers to another store, when the user asks | `dossier move <id>... --to <sphere>` |
 | Show its session to the user | `dossier attach <id>` |
 | Open the store's desk (a lasting session, no state) | `dossier desk` |
 | Turn this agent's conversation into a new dossier (run inside its herdr pane) | `dossier adopt --title "…" --store <root>` |

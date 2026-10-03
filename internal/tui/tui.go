@@ -39,44 +39,45 @@ func Run(root string, noSide, reset bool) error {
 }
 
 type model struct {
-	root        string
-	roots       []string
-	rows        []row
-	stores      []*storeView
-	byPerson    bool
-	byPriority  bool
-	waitW       int // width of the waiting column, 0 when nothing waits
-	errs        []string
-	cursor      int
-	offset      int
-	scroll      int // first line of the detail panel
-	width       int
-	height      int
-	all         bool
-	todo        bool
-	ask         *ask // the form on the bottom line, when one is open
-	filter      string
-	typing      bool
-	noDetail    bool   // the detail panel is hidden
-	layout      string // where the detail panel goes: auto, right or bottom
-	listY       int    // screen line of the list's first row, set by render
-	listW       int
-	listH       int
-	detailW     int
-	legend      bool // the detail panel shows what marks and colours mean
-	agentsView  bool // g n: only the agents that no dossier holds
-	starredView bool // g s: only the starred dossiers
-	gPending    bool // g was typed: the next key goes somewhere
-	side        bool // enter docks the agent at the TUI's right
-	placeholder string
-	docked      docked
-	lastDocked  docked     // the one before, for '
-	start       tea.Cmd    // run once the program starts: docks the agent docked last time
-	saved       savedState // last state written
-	sideRatio   float64    // the TUI's share of the width in side mode, 0 for the default
-	convs       map[string]convAt
-	status      string
-	statusErr   bool
+	root            string
+	roots           []string
+	rows            []row
+	stores          []*storeView
+	byPerson        bool
+	byPriority      bool
+	waitW           int // width of the waiting column, 0 when nothing waits
+	errs            []string
+	cursor          int
+	offset          int
+	scroll          int // first line of the detail panel
+	width           int
+	height          int
+	all             bool
+	todo            bool
+	ask             *ask // the form on the bottom line, when one is open
+	filter          string
+	typing          bool
+	noDetail        bool   // the detail panel is hidden
+	layout          string // where the detail panel goes: auto, right or bottom
+	listY           int    // screen line of the list's first row, set by render
+	listW           int
+	listH           int
+	detailW         int
+	detailOverflows bool // the detail panel has more lines than room, as last drawn
+	legend          bool // the detail panel shows what marks and colours mean
+	agentsView      bool // g n: only the agents that no dossier holds
+	starredView     bool // g s: only the starred dossiers
+	gPending        bool // g was typed: the next key goes somewhere
+	side            bool // enter docks the agent at the TUI's right
+	placeholder     string
+	docked          docked
+	lastDocked      docked     // the one before, for '
+	start           tea.Cmd    // run once the program starts: docks the agent docked last time
+	saved           savedState // last state written
+	sideRatio       float64    // the TUI's share of the width in side mode, 0 for the default
+	convs           map[string]convAt
+	status          string
+	statusErr       bool
 }
 
 type tickMsg time.Time
@@ -1017,6 +1018,7 @@ func (m *model) window(lines []string, h int) string {
 		m.scroll = 0
 	}
 	total := len(lines)
+	m.detailOverflows = total > h
 	lines = lines[m.scroll:]
 	if len(lines) > h {
 		lines = lines[:h]

@@ -907,8 +907,12 @@ func routeByPrefix(ctx *spec.Context, a *app.App) {
 	if ctx.Store != "" || os.Getenv("DOSSIER_STORE") != "" {
 		return
 	}
-	for _, name := range []string{"id", "from"} {
-		m := prefixRe.FindStringSubmatch(ctx.Str(name))
+	candidates := []string{ctx.Str("id"), ctx.Str("from")}
+	if ids := ctx.List("ids"); len(ids) > 0 {
+		candidates = append(candidates, ids[0])
+	}
+	for _, c := range candidates {
+		m := prefixRe.FindStringSubmatch(c)
 		if m == nil {
 			continue
 		}

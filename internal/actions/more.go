@@ -138,6 +138,49 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
+		Category: "dossier", Name: "move", Summary: "Move dossiers to another store: number, directory, sources, history and session follow.",
+		Discussion: "Each dossier gets a number in the target store (P-0010 becomes U-0037). Links among the moved dossiers stay; " +
+			"links to the others go, on both sides. A running session restarts in the target store with its environment and charter. " +
+			"The target's connectors take the sources in where they can (a reminder gets the store's tag); the result names the others. " +
+			"Only when the user asked: a store is a sphere of their life.",
+		Params: []spec.Param{
+			{Name: "ids", Kind: spec.StringList, Positional: true, Required: true, Help: "Dossiers to move, e.g. P-0010 P-0011."},
+			{Name: "to", Kind: spec.String, Required: true, Help: "Target store: its sphere (pro), its id prefix (U) or its directory."},
+		},
+		Effects: []string{"Moves each directory into the target store under a new number and rewrites its id and links.",
+			"Moves the session's conversation to the new directory's Claude Code project, then restarts a running session there.",
+			"Removes the links that stay-behind dossiers held to the moved ones; calls claim on the target's connectors."},
+		Destructive: true,
+		Examples:    []string{"dossier move P-0010 P-0011 --to pro", "dossier move U-0042 --to ~/dossiers/perso"},
+		Run: func(ctx *spec.Context) (any, error) {
+			ids := ctx.List("ids")
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				target, err := storeNamed(a.S, ctx.Str("to"))
+				if err != nil {
+					return nil, err
+				}
+				return a.Move(ids, target)
+			})
+		},
+		Text: func(w io.Writer, r any) {
+			res := r.(app.MoveResult)
+			for _, m := range res.Moved {
+				restarted := ""
+				if m.Restarted {
+					restarted = " · session restarted"
+				}
+				fmt.Fprintf(w, "%s → %s · %s%s\n", m.From, m.To, m.Dir, restarted)
+			}
+			if len(res.Unlinked) > 0 {
+				fmt.Fprintf(w, "links removed from %s\n", strings.Join(res.Unlinked, ", "))
+			}
+			for _, x := range res.Warnings {
+				fmt.Fprintf(w, "warning: %s\n", x)
+			}
+		},
+	})
+
+	spec.Register(&spec.Action{
 		Category: "dossier", Name: "adopt", Summary: "Make a new dossier of a Claude Code agent you started in a herdr pane: its conversation becomes the dossier's session.",
 		Discussion: "The agent keeps running where it is, in its own directory, and receives the dossier's prompts. It gets the " +
 			"dossier tools at its first `dossier restart`, which ends it once its turn is over and resumes its conversation through " +
@@ -310,4 +353,24 @@ func installSkill(target, dir string) (string, error) {
 	}
 	p := filepath.Join(dir, "SKILL.md")
 	return p, os.WriteFile(p, []byte(skillText), 0o644)
+}
+
+// storeNamed finds a store by sphere (pro), id prefix (U) or directory,
+// among the stores beside the current one.
+func storeNamed(current *store.Store, name string) (*store.Store, error) {
+	if p := store.ExpandHome(name); strings.ContainsRune(p, os.PathSeparator) {
+		return store.Open(p)
+	}
+	var known []string
+	for _, dir := range store.Discover(filepath.Dir(current.Root)) {
+		s, err := store.Open(dir)
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(s.Config.Store.Sphere, name) || strings.EqualFold(s.Prefix(), name) {
+			return s, nil
+		}
+		known = append(known, s.Config.Store.Sphere)
+	}
+	return nil, spec.UserError("no store %q beside %s; known: %s", name, current.Root, strings.Join(known, ", "))
 }

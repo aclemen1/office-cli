@@ -78,6 +78,9 @@ func (m *model) footer() []keyGroup {
 		nav = append(nav, [2]string{"'", "back"})
 	}
 	nav = append(nav, [2]string{"/", "filter"})
+	if m.detailOverflows && (!m.noDetail || m.legend) {
+		nav = append(nav, [2]string{"J K", "scroll detail"})
+	}
 
 	detailWord := "hide detail"
 	if m.noDetail {

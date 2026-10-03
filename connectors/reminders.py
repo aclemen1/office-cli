@@ -10,7 +10,8 @@ the dossier title, its notes the instruction. Tags split the spheres: a store ta
 completes the reminder and clears its flag and priority; reopening it
 uncompletes it and sets the flag.
 
-Protocol 1: `reminders.py describe|poll|transition`, JSON on stdin and stdout.
+Protocol 1: `reminders.py describe|poll|transition|claim`, JSON on stdin and stdout.
+claim: a dossier moved to this store; its reminder gets require_tag and loses exclude_tag.
 config: require_tag or exclude_tag (tag names without '#'), list (optional).
 """
 import json
@@ -107,18 +108,44 @@ def transition(inp):
     return {"ok": True, "detail": "a flag has no waiting state"}
 
 
+def claim(inp):
+    """Make a reminder that now belongs to this store pass its filter: add
+    require_tag, remove exclude_tag. The other tags stay."""
+    cfg, ref = inp.get("config") or {}, inp["source_ref"]
+    if not ref.startswith("reminders:item/"):
+        raise Fail(f"not a reminder reference: {ref}")
+    rid = ref.split("/", 1)[1]
+    item = macos("reminders", "items", "get", rid, "--fields", "id,tags")
+    tags = [t.lstrip("#") for t in item.get("tags") or []]
+    want = list(tags)
+    req, exc = (cfg.get("require_tag") or "").lstrip("#"), (cfg.get("exclude_tag") or "").lstrip("#")
+    if req and req.lower() not in {t.lower() for t in want}:
+        want.append(req)
+    if exc:
+        want = [t for t in want if t.lower() != exc.lower()]
+    if want == tags:
+        return {"ok": True, "detail": "already in this store's filter"}
+    if want:
+        macos("reminders", "items", "update", rid, "--tags", ",".join(want))
+    else:
+        macos("reminders", "items", "update", rid, "--clear-tags")
+    return {"ok": True, "detail": "tags now " + ", ".join(want or ["none"])}
+
+
 def main():
     verb = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
-        inp = json.load(sys.stdin) if verb in ("poll", "transition") else {}
+        inp = json.load(sys.stdin) if verb in ("poll", "transition", "claim") else {}
         if verb == "describe":
-            out = {"name": "reminders", "protocol": 1, "verbs": ["describe", "poll", "transition"]}
+            out = {"name": "reminders", "protocol": 1, "verbs": ["describe", "poll", "transition", "claim"]}
         elif verb == "poll":
             out = poll(inp)
         elif verb == "transition":
             out = transition(inp)
+        elif verb == "claim":
+            out = claim(inp)
         else:
-            raise Fail(f"unknown verb {verb!r}; expected describe, poll or transition")
+            raise Fail(f"unknown verb {verb!r}; expected describe, poll, transition or claim")
     except Fail as e:
         json.dump({"error": {"message": str(e)}}, sys.stdout)
         sys.exit(1)

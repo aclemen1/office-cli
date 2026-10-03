@@ -143,3 +143,36 @@ func TestUnknownActionsAndBadFormatsFailCleanly(t *testing.T) {
 		t.Fatal("--format yaml accepted")
 	}
 }
+
+func TestMoveFromTheCLIByPrefixAndSphere(t *testing.T) {
+	pro := setup(t)
+	perso := filepath.Join(filepath.Dir(pro), "perso")
+	if code, env := call(t, "init", perso, "--sphere", "perso", "--format", "json"); code != 0 {
+		t.Fatalf("init perso: %v", env)
+	}
+	s := func(store string, args ...string) map[string]any {
+		t.Helper()
+		code, env := call(t, append(args, "--store", store, "--format", "json")...)
+		if code != 0 || env["ok"] != true {
+			t.Fatalf("%v: %d %v", args, code, env)
+		}
+		return env
+	}
+	a := s(perso, "open", "--title", "K3S errata", "--no-start")["result"].(map[string]any)["id"].(string)
+	b := s(perso, "open", "--title", "K3S fenêtre", "--no-start")["result"].(map[string]any)["id"].(string)
+	s(perso, "link", a, b, "--rel", "includes")
+	moved := s(perso, "move", a, b, "--to", "pro")["result"].(map[string]any)["moved"].([]any)
+	if len(moved) != 2 {
+		t.Fatalf("moved %v", moved)
+	}
+	newA := moved[0].(map[string]any)["to"].(string)
+	if dir := moved[0].(map[string]any)["dir"].(string); !strings.Contains(dir, filepath.Base(filepath.Dir(pro))+"/pro/") {
+		t.Fatalf("moved to %s, not into %s", dir, pro)
+	}
+	if tree := s(pro, "tree", newA)["result"].(map[string]any); len(tree["children"].([]any)) != 1 {
+		t.Fatalf("the link should follow: %v", tree)
+	}
+	if rows := s(perso, "ls", "--status", "all")["result"].([]any); len(rows) != 0 {
+		t.Fatalf("perso still holds %v", rows)
+	}
+}

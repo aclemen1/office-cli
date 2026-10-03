@@ -75,3 +75,25 @@ func TestLCyclesThePanelPlace(t *testing.T) {
 		t.Fatalf("L three times comes back to auto: %s", m.layoutName())
 	}
 }
+
+func TestTheFooterOffersToScrollAnOverflowingDetail(t *testing.T) {
+	has := func(m *model) bool {
+		for _, g := range m.footer() {
+			for _, k := range g.keys {
+				if k[0] == "J K" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	m := &model{width: 80, height: 30}
+	m.window([]string{"a", "b"}, 10)
+	if has(m) {
+		t.Fatal("nothing to scroll")
+	}
+	m.window(make([]string, 40), 10)
+	if !has(m) {
+		t.Fatal("an overflowing detail panel should offer J K")
+	}
+}

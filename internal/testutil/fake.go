@@ -106,7 +106,7 @@ func fakeConnector(mode, logPath string) {
 	}
 	switch verb {
 	case "describe":
-		fmt.Print(`{"name":"fake","protocol":1,"verbs":["describe","poll","transition"]}`)
+		fmt.Print(`{"name":"fake","protocol":1,"verbs":["describe","poll","transition","claim"]}`)
 	case "poll":
 		watch, _ := in["watch"].([]any)
 		events := []any{}
@@ -129,6 +129,8 @@ func fakeConnector(mode, logPath string) {
 			"events": events, "cursor": "cursor-2",
 		})
 		fmt.Print(string(b))
+	case "claim":
+		fmt.Print(`{"ok":true,"detail":"tagged"}`)
 	case "transition":
 		if mode == "fail-transition" {
 			fmt.Print(`{"error":{"message":"gmail unavailable"}}`)

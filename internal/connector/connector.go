@@ -188,3 +188,15 @@ func (r Runner) Opened(sourceRef, threadRef, outcome string, d Dossier) error {
 		"outcome": outcome, "dossier": d,
 	}, &out)
 }
+
+// Claim tells the connector that the item now belongs to its store, after a
+// dossier moved there: it makes the item pass its own filter (a reminder gets
+// the store's tag). Optional verb: call it only when describe lists "claim".
+func (r Runner) Claim(sourceRef string) (string, error) {
+	var out struct {
+		OK     bool   `json:"ok"`
+		Detail string `json:"detail"`
+	}
+	err := r.run("claim", map[string]any{"config": r.Source.Config, "source_ref": sourceRef}, &out)
+	return out.Detail, err
+}

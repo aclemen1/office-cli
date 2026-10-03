@@ -42,6 +42,7 @@ var tools = []tool{
 	{name: "track", action: "track", self: []string{"id"},
 		description: "Attach a thread to a dossier as a source, e.g. the thread of a draft you just wrote: its replies come back there, and its star follows the dossier's state."},
 	{name: "merge", action: "merge", self: []string{"from"}, description: "Merge a dossier into another one, after the user agreed."},
+	{name: "move", action: "move", description: "Move dossiers to another store (its sphere, e.g. pro): they get a number there, links among them stay. Only when the user asked."},
 	{name: "notify", action: "notify", self: []string{"from"}, description: "Tell another dossier something: a decision, new information, a request. Its session gets it as a prompt."},
 }
 
