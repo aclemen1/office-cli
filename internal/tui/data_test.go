@@ -187,6 +187,13 @@ func TestAgentsWithoutDossierFollowTheStores(t *testing.T) {
 	}
 	m := &model{roots: store.Discover(root)}
 	m.reload()
+	for _, r := range m.rows {
+		if r.agent != nil {
+			t.Fatal("the dossiers view shows no agent")
+		}
+	}
+	m.key("g")
+	m.key("n")
 	var agents []string
 	for i, r := range m.rows {
 		if r.agent != nil {
@@ -314,13 +321,16 @@ func TestTheFooterShowsWhatMakesSenseNow(t *testing.T) {
 	sv := &storeView{root: "/s"}
 	waiting := row{store: sv, d: &dossier.Dossier{ID: "D-1", State: dossier.Waiting, Run: dossier.RunState{Session: "x"}}, activity: "idle"}
 	m := &model{rows: []row{waiting}}
-	r, nav := m.footer()
-	if got := keys(r); !strings.Contains(got, "u") || strings.Contains(got, "n") || strings.Contains(keys(nav), "g d") {
-		t.Fatalf("waiting row keys %q, nav %q", got, keys(nav))
+	g := m.footer()
+	if g[0].title != "dossier" || g[1].title != "agent" || g[2].title != "move" || g[3].title != "view" {
+		t.Fatalf("themes %+v", g)
+	}
+	if got := keys(g[0].keys); !strings.Contains(got, "u") || strings.Contains(got, "n") || strings.Contains(keys(g[2].keys), "g d") {
+		t.Fatalf("waiting row keys %q, move %q", got, keys(g[2].keys))
 	}
 	m.key("g")
-	if r, _ := m.footer(); keys(r) != "g d i t w a" {
-		t.Fatalf("after g: %q", keys(r))
+	if g := m.footer(); keys(g[0].keys) != "g d p i t w a s n" {
+		t.Fatalf("after g: %q", keys(g[0].keys))
 	}
 	m.key("esc")
 	if m.gPending {
@@ -365,5 +375,63 @@ func TestTheSideRatioComesBackWithinBounds(t *testing.T) {
 	}
 	if r := (&model{sideRatio: 0.99}).ratio(); r != "0.3500" {
 		t.Fatalf("a ratio that leaves no room falls back: %s", r)
+	}
+}
+
+func TestOShowsTheAgentAndKeepsTheFocus(t *testing.T) {
+	sv := &storeView{root: "/s"}
+	m := &model{side: true, placeholder: "w1:p9", rows: []row{{store: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "idle"}}}
+	if cmd := m.key("O"); cmd == nil || m.docked.id != "D-1" {
+		t.Fatalf("O should dock D-1: %+v", m.docked)
+	}
+}
+
+func TestUnreadIsHerdrsDone(t *testing.T) {
+	d := &dossier.Dossier{ID: "D-1"}
+	if unreadOf(nil, d, "idle") || !unreadOf(nil, d, "ready") {
+		t.Fatal("unread follows herdr: done means the agent's turn ended unseen")
+	}
+}
+
+func TestStarredDossiersComeFirstAndStayAtHand(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	a := &app.App{S: s}
+	for _, title := range []string{"Un", "Deux", "Trois"} {
+		a.Open(app.OpenParams{Title: title, NoStart: true})
+	}
+	d, _ := a.Load("3")
+	a.Star(d, true)
+	d.WaitUntil = "2099-01-01T00:00:00+01:00"
+	a.SetState(d, "wait", "", "Livit")
+	titles := func(m *model) string {
+		var got []string
+		for _, r := range m.rows {
+			if r.d != nil && !r.desk {
+				got = append(got, r.d.Title)
+			}
+		}
+		return strings.Join(got, ",")
+	}
+	m := &model{roots: store.Discover(root)}
+	m.reload()
+	if got := titles(m); !strings.HasPrefix(got, "Trois") {
+		t.Fatalf("a starred dossier comes first: %s", got)
+	}
+	m.key("g")
+	m.key("t")
+	if got := titles(m); !strings.Contains(got, "Trois") {
+		t.Fatalf("a starred dossier stays in to do, even waiting: %s", got)
+	}
+	m.key("g")
+	m.key("s")
+	if got := titles(m); got != "Trois" {
+		t.Fatalf("g s shows only the starred: %s", got)
+	}
+	for _, r := range m.rows {
+		if r.d != nil && r.d.Title == "Trois" && !strings.Contains(m.rowView(r, false, 80), "⭐") {
+			t.Fatal("a starred row shows a star")
+		}
 	}
 }

@@ -49,28 +49,67 @@ func PaneTab(id string) (string, error) {
 	return w.TabID, err
 }
 
-// trade puts pane in place of other, which leaves for a tab of its own in
-// workspace: herdr swaps panes only within a tab, so pane first joins
-// other's tab under it. The rest of the tab keeps its geometry.
-// A pane that changes workspace gets a new id: trade returns both panes' ids
-// after the moves, and the tab other ends in.
-func trade(pane, other, workspace, label, focus string) (paneNow, otherNow, tab string, err error) {
-	where, err := paneOf(other)
+// exchange puts each pane in the other's place, in each other's tab; the
+// rest of both tabs keeps its geometry. herdr swaps panes only within a tab,
+// so a temporary pane holds a's place while a and b cross: a joins b's tab and
+// swaps with b, b joins a's tab and swaps with the temporary pane, which
+// closes. A pane that changes workspace gets a new id: exchange returns both.
+func exchange(a, b string) (aNow, bNow string, err error) {
+	wa, err := paneOf(a)
 	if err != nil {
-		return "", "", "", err
+		return "", "", err
 	}
-	paneNow, _, err = move(pane, "--tab", where.TabID, "--split", "down", "--target-pane", other, focus)
+	wb, err := paneOf(b)
 	if err != nil {
-		return "", "", "", err
+		return "", "", err
 	}
-	if _, err := herdrCall("pane", "swap", "--source-pane", paneNow, "--target-pane", other); err != nil {
-		return "", "", "", err
+	a, b = orID(wa.PaneID, a), orID(wb.PaneID, b)
+	out, err := herdrCall("pane", "split", a, "--direction", "down")
+	if err != nil {
+		return "", "", err
 	}
-	otherNow, tab, err = move(other, "--new-tab", "--workspace", workspace, "--label", label, "--no-focus")
-	if err == nil {
-		resize(paneNow)
+	var r struct {
+		Result struct {
+			Pane struct {
+				PaneID string `json:"pane_id"`
+			} `json:"pane"`
+		} `json:"result"`
 	}
-	return paneNow, otherNow, tab, err
+	_ = json.Unmarshal(out, &r)
+	temp := r.Result.Pane.PaneID
+	if aNow, _, err = move(a, "--tab", wb.TabID, "--split", "down", "--target-pane", b, "--no-focus"); err != nil {
+		return "", "", err
+	}
+	if _, err = herdrCall("pane", "swap", "--source-pane", aNow, "--target-pane", b); err != nil {
+		return "", "", err
+	}
+	if bNow, _, err = move(b, "--tab", wa.TabID, "--split", "down", "--target-pane", temp, "--no-focus"); err != nil {
+		return "", "", err
+	}
+	if _, err = herdrCall("pane", "swap", "--source-pane", bNow, "--target-pane", temp); err != nil {
+		return "", "", err
+	}
+	_, _ = herdrCall("pane", "close", temp)
+	resize(aNow)
+	resize(bNow)
+	return aNow, bNow, nil
+}
+
+func orID(now, was string) string {
+	if now != "" {
+		return now
+	}
+	return was
+}
+
+// focusAfter gives the focus to the agent, or back to the pane at the left of
+// the one in the placeholder's place, e.g. the TUI: swaps move the focus.
+func focusAfter(agent, inSlot string, focus bool) {
+	if focus {
+		_, _ = herdrCall("agent", "focus", agent)
+		return
+	}
+	_, _ = herdrCall("pane", "focus", "--pane", inSlot, "--direction", "left")
 }
 
 // move runs herdr pane move and returns the pane's id after it, and the tab
@@ -100,12 +139,20 @@ func move(pane string, args ...string) (string, string, error) {
 	return now, r.Result.MoveResult.CreatedTab.TabID, nil
 }
 
-// Dock runs the session and puts its pane in place of the placeholder pane,
-// e.g. the one the TUI keeps at its right. The placeholder waits in a tab of
-// its own until Undock brings it back.
+// Dock runs the session and exchanges its pane with the placeholder pane,
+// e.g. the one the TUI keeps at its right: the agent comes there, and the
+// placeholder waits in the agent's own tab, in its place, until Undock.
+// The placeholder keeps the id it was given: herdr still resolves it.
 func (a *App) Dock(d *dossier.Dossier, placeholder string, focus bool) error {
 	if placeholder == "" {
 		return spec.UserError("dock needs the placeholder pane the agent takes the place of, e.g. --placeholder w5:p8")
+	}
+	// Already in this placeholder's place: only the focus may move.
+	if d.Run.Home != "" && d.Run.Placeholder == placeholder && paneAlive(d.Run.PaneID) {
+		if focus {
+			_, _ = herdrCall("agent", "focus", d.Run.PaneID)
+		}
+		return nil
 	}
 	// Docked in another placeholder's place, e.g. by another TUI: give that place back first.
 	if d.Run.Home != "" && d.Run.Placeholder != placeholder {
@@ -113,39 +160,46 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string, focus bool) error {
 			return err
 		}
 	}
-	if err := a.ensureRunning(d, false); err != nil {
-		return err
+	if other := a.holderOf(placeholder); other != nil && other.ID != d.ID {
+		return spec.UserError("%s holds the place of placeholder %s: undock it first", other.Label(), placeholder)
 	}
-	slot, err := paneOf(placeholder)
-	if err != nil {
+	if err := a.ensureRunning(d, false); err != nil {
 		return err
 	}
 	own, err := paneOf(d.Run.PaneID)
 	if err != nil {
 		return err
 	}
-	if own.TabID != slot.TabID && paneCount(slot.TabID) < 2 {
-		return spec.UserError("placeholder %s waits alone in its tab: another agent holds its place. Undock that one first", placeholder)
+	_, agentNow, err := exchange(placeholder, d.Run.PaneID)
+	if err != nil {
+		return err
 	}
-	if own.TabID != slot.TabID {
-		paneNow, placeholderNow, _, err := trade(d.Run.PaneID, placeholder, slot.WorkspaceID, "dock placeholder", focusFlag(focus))
-		if err != nil {
-			return err
-		}
-		d.Run.PaneID = paneNow
-		_, _ = herdrCall("pane", "rename", paneNow, TabLabel(d))
-		d.Run.Home, d.Run.Placeholder, d.Run.TabID = own.WorkspaceID, placeholderNow, ""
-		_ = d.Log("pane docked in place of %s", placeholder)
-	}
+	focusAfter(agentNow, agentNow, focus)
+	d.Run.PaneID = agentNow
+	_, _ = herdrCall("pane", "rename", agentNow, TabLabel(d))
+	d.Run.Home, d.Run.Placeholder, d.Run.TabID = own.WorkspaceID, placeholder, ""
+	_ = d.Log("pane docked in place of %s; the placeholder waits in tab %s", placeholder, own.TabID)
 	if err := d.Save(); err != nil {
 		return err
 	}
 	a.touchDock()
-	return a.MarkSeen(d)
+	return nil
 }
 
-// Undock gives the placeholder its place back and moves the pane to a tab of
-// its own in its home workspace. Without a placeholder left, the pane just leaves.
+// holderOf is the dossier or desk of this store docked in the placeholder's place.
+func (a *App) holderOf(placeholder string) *dossier.Dossier {
+	all, _ := a.All()
+	for _, d := range append(all, a.Desk()) {
+		if d.Run.Home != "" && d.Run.Placeholder == placeholder {
+			return d
+		}
+	}
+	return nil
+}
+
+// Undock exchanges the pane with the placeholder again: the agent goes back
+// to its own tab, the placeholder to its place. Without a placeholder left,
+// the pane moves to a new tab of its home workspace.
 func (a *App) Undock(d *dossier.Dossier) error {
 	if d.Run.Home == "" {
 		return nil
@@ -153,12 +207,14 @@ func (a *App) Undock(d *dossier.Dossier) error {
 	home, placeholder := d.Run.Home, d.Run.Placeholder
 	// herdr still answers pane get for an id a move replaced.
 	if w, err := paneOf(d.Run.PaneID); err == nil {
-		if w.PaneID != "" {
-			d.Run.PaneID = w.PaneID
-		}
+		d.Run.PaneID = orID(w.PaneID, d.Run.PaneID)
 		var paneNow, tab string
-		if _, perr := paneOf(placeholder); placeholder != "" && perr == nil {
-			_, paneNow, tab, err = trade(placeholder, d.Run.PaneID, home, TabLabel(d), "--no-focus")
+		if pw, perr := paneOf(placeholder); placeholder != "" && perr == nil {
+			var placeholderNow string
+			if placeholderNow, paneNow, err = exchange(placeholder, d.Run.PaneID); err == nil {
+				focusAfter(paneNow, placeholderNow, false)
+				tab = pw.TabID
+			}
 		} else {
 			paneNow, tab, err = move(d.Run.PaneID, "--new-tab", "--workspace", home, "--label", TabLabel(d), "--no-focus")
 		}
@@ -174,22 +230,6 @@ func (a *App) Undock(d *dossier.Dossier) error {
 	}
 	a.touchDock()
 	return nil
-}
-
-func paneCount(tab string) int {
-	out, err := herdrCall("tab", "get", tab)
-	if err != nil {
-		return 0
-	}
-	var r struct {
-		Result struct {
-			Tab struct {
-				PaneCount int `json:"pane_count"`
-			} `json:"tab"`
-		} `json:"result"`
-	}
-	_ = json.Unmarshal(out, &r)
-	return r.Result.Tab.PaneCount
 }
 
 // resize makes herdr give the pane's terminal the size of its place: after a
@@ -213,9 +253,19 @@ func (a *App) touchDock() {
 	_ = os.WriteFile(p, []byte(time.Now().Format(time.RFC3339Nano)+"\n"), 0o644)
 }
 
-func focusFlag(focus bool) string {
-	if focus {
-		return "--focus"
+// focusedIn is the focused pane of the tab the pane sits in.
+func focusedIn(pane string) string {
+	out, err := herdrCall("pane", "layout", "--pane", pane)
+	if err != nil {
+		return ""
 	}
-	return "--no-focus"
+	var r struct {
+		Result struct {
+			Layout struct {
+				Focused string `json:"focused_pane_id"`
+			} `json:"layout"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(out, &r)
+	return r.Result.Layout.Focused
 }

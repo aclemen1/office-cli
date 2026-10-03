@@ -24,6 +24,8 @@ func fakeHerdr(t *testing.T) *[]string {
 			return []byte(`{"result":{"pane":{"tab_id":"tui2-tab","workspace_id":"tui-ws"}}}`), nil
 		case args[0] == "pane" && args[1] == "get":
 			return []byte(`{"result":{"pane":{"tab_id":"own-tab","workspace_id":"dossiers-ws"}}}`), nil
+		case args[0] == "pane" && args[1] == "split":
+			return []byte(`{"result":{"pane":{"pane_id":"temp"}}}`), nil
 		case args[0] == "tab" && args[1] == "get":
 			return []byte(`{"result":{"tab":{"pane_count":2}}}`), nil
 		case args[0] == "pane" && args[1] == "move" && contains(args, "--new-tab"):
@@ -36,7 +38,7 @@ func fakeHerdr(t *testing.T) *[]string {
 	return &calls
 }
 
-func TestDockTradesPlacesWithThePlaceholderAndBack(t *testing.T) {
+func TestDockExchangesTheAgentWithThePlaceholderAndBack(t *testing.T) {
 	f := newFixture(t)
 	f.a.Open(OpenParams{Title: "Affaire"})
 	calls := fakeHerdr(t)
@@ -49,9 +51,13 @@ func TestDockTradesPlacesWithThePlaceholderAndBack(t *testing.T) {
 	}
 	got := strings.Join(*calls, "\n")
 	for _, want := range []string{
-		"pane move fake:p1 --tab tui-tab --split down --target-pane ph --focus",
-		"pane swap --source-pane tui-ws:p1 --target-pane ph",
-		"pane move ph --new-tab --workspace tui-ws --label dock placeholder --no-focus",
+		"pane split ph --direction down",
+		"pane move ph --tab own-tab --split down --target-pane fake:p1 --no-focus",
+		"pane swap --source-pane ph --target-pane fake:p1",
+		"pane move fake:p1 --tab tui-tab --split down --target-pane temp --no-focus",
+		"pane swap --source-pane tui-ws:p1 --target-pane temp",
+		"pane close temp",
+		"agent focus tui-ws:p1",
 		"pane resize --pane tui-ws:p1 --direction left --amount 0.01",
 		"pane rename tui-ws:p1 D-0001 · Affaire",
 	} {
@@ -123,7 +129,7 @@ func TestASecondTUIGivesTheFirstPlaceholderItsPlaceBack(t *testing.T) {
 	}
 	got := strings.Join(*calls, "\n")
 	back := strings.Index(got, "pane swap --source-pane ph --target-pane tui-ws:p1")
-	in := strings.Index(got, "--target-pane ph2")
+	in := strings.Index(got, "pane split ph2")
 	if back < 0 || in < back || d.Run.Placeholder != "ph2" || d.Run.Home != "dossiers-ws" {
 		t.Fatalf("run %+v\n%s", d.Run, got)
 	}
@@ -136,7 +142,24 @@ func TestDockCanLeaveTheFocusInTheTUI(t *testing.T) {
 	if err := f.a.Dock(mustGet(t, f, "1"), "ph", false); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(*calls, "\n"); !strings.Contains(got, "--target-pane ph --no-focus") {
+	if got := strings.Join(*calls, "\n"); !strings.Contains(got, "pane focus --pane tui-ws:p1 --direction left") || strings.Contains(got, "agent focus") {
 		t.Fatalf("dock moved the focus:\n%s", got)
+	}
+}
+
+func TestOpeningTheDockedDossierOnlyFocusesIt(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Affaire"})
+	calls := fakeHerdr(t)
+	d := mustGet(t, f, "1")
+	if err := f.a.Dock(d, "ph", false); err != nil {
+		t.Fatal(err)
+	}
+	*calls = nil
+	if err := f.a.Dock(d, "ph", true); err != nil {
+		t.Fatalf("a second open of the docked dossier failed: %v", err)
+	}
+	if got := strings.Join(*calls, "\n"); got != "agent focus tui-ws:p1" {
+		t.Fatalf("calls %q", got)
 	}
 }

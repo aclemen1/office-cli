@@ -73,6 +73,7 @@ type Dossier struct {
 	WaitingOn   string   `json:"waiting_on,omitempty"`
 	WaitUntil   string   `json:"wait_until,omitempty"`
 	NoAction    bool     `json:"no_action,omitempty"`
+	Starred     bool     `json:"starred,omitempty"`
 	MergedInto  string   `json:"merged_into,omitempty"`
 	Sources     []Source `json:"sources"`
 	Threads     []string `json:"threads"`
@@ -136,6 +137,7 @@ func Load(dir string) (*Dossier, error) {
 		WaitingOn   string   `yaml:"waiting_on"`
 		WaitUntil   string   `yaml:"wait_until"`
 		NoAction    bool     `yaml:"no_action"`
+		Starred     bool     `yaml:"starred"`
 		MergedInto  string   `yaml:"merged_into"`
 		Sources     []Source `yaml:"sources"`
 		Threads     []string `yaml:"threads"`
@@ -148,7 +150,7 @@ func Load(dir string) (*Dossier, error) {
 	}
 	d := &Dossier{
 		Dir: dir, ID: f.ID, Title: f.Title, Alias: f.Alias, Description: f.Description, Resource: f.Resource,
-		State: f.State, WaitingOn: f.WaitingOn, WaitUntil: f.WaitUntil, NoAction: f.NoAction, MergedInto: f.MergedInto,
+		State: f.State, WaitingOn: f.WaitingOn, WaitUntil: f.WaitUntil, NoAction: f.NoAction, Starred: f.Starred, MergedInto: f.MergedInto,
 		Sources: f.Sources, Threads: f.Threads, Links: f.Links, Created: f.Created, Updated: f.Timestamp,
 		doc: mapping, body: body,
 	}
@@ -208,6 +210,7 @@ func (d *Dossier) Save() error {
 	set("waiting_on", d.WaitingOn)
 	set("wait_until", d.WaitUntil)
 	set("no_action", d.NoAction)
+	set("starred", d.Starred)
 	set("merged_into", d.MergedInto)
 	set("sources", d.Sources)
 	set("threads", d.Threads)

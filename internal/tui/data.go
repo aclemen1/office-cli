@@ -64,17 +64,14 @@ func agentRows(stores []*storeView, filter string) []row {
 		a := ag
 		out = append(out, row{agent: &a, activity: app.Activity(&dossier.Dossier{Run: dossier.RunState{Session: a.Session, PaneID: a.PaneID}}, stores[0].live)})
 	}
-	if len(out) == 0 {
-		return nil
-	}
-	return append([]row{{}, {header: "agents without dossier"}}, out...)
+	return out
 }
 
 // deskRow is the store header: selectable, it stands for the store's desk.
 func deskRow(sv *storeView) row {
 	d := sv.a.Desk()
 	return row{header: sv.name, store: sv, d: d, desk: true, activity: app.Activity(d, sv.live),
-		unread: d.Run.Session != "" && sv.seen.Unread(sv.a, d)}
+		unread: d.Run.Session != "" && unreadOf(sv, d, app.Activity(d, sv.live))}
 }
 
 func (r row) spacer() bool { return r.d == nil && r.agent == nil && r.header == "" }
@@ -84,20 +81,25 @@ type storeView struct {
 	root  string
 	a     *app.App
 	all   []*dossier.Dossier
-	seen  app.Seen
 	live  map[string]string
 	byID  map[string]*dossier.Dossier
 	count map[string]int
 }
 
 func shown(d *dossier.Dossier, v view) bool {
+	active := d.State == dossier.Open || d.State == dossier.Waiting
 	switch {
+	case v.starred:
+		if !d.Starred || d.State == dossier.Merged {
+			return false
+		}
 	case v.todo:
-		if d.State != dossier.Open || d.NoAction {
+		// A starred dossier stays at hand, even waiting or with no action.
+		if !(d.Starred && active) && (d.State != dossier.Open || d.NoAction) {
 			return false
 		}
 	case !v.all:
-		if d.State != dossier.Open && d.State != dossier.Waiting {
+		if !active {
 			return false
 		}
 	}
@@ -117,6 +119,8 @@ type view struct {
 	filter     string // substring of id, alias, title or whom it waits on
 	byPerson   bool   // waiting dossiers grouped by whom they wait on
 	byPriority bool   // what needs you first, instead of by number
+	agentsView bool   // only the agents that no dossier holds
+	starred    bool   // only the starred dossiers
 }
 
 func load(roots []string, v view) ([]row, []*storeView, []string) {
@@ -125,13 +129,6 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 	var stores []*storeView
 	var errs []string
 	live := app.Panes()
-	var apps []*app.App
-	for _, root := range roots {
-		if s, err := store.Open(root); err == nil {
-			apps = append(apps, &app.App{S: s})
-		}
-	}
-	seen := app.LoadSeen(apps...)
 	for _, root := range roots {
 		s, err := store.Open(root)
 		if err != nil {
@@ -148,7 +145,7 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 		if name == "" {
 			name = filepath.Base(root)
 		}
-		sv := &storeView{name: name, root: root, a: a, all: ds, live: live, seen: seen, byID: map[string]*dossier.Dossier{}, count: map[string]int{}}
+		sv := &storeView{name: name, root: root, a: a, all: ds, live: live, byID: map[string]*dossier.Dossier{}, count: map[string]int{}}
 		stores = append(stores, sv)
 		for _, d := range ds {
 			sv.byID[d.ID] = d
@@ -170,8 +167,9 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 		if waiting := waitingRows(stores, filter); len(waiting) > 0 {
 			rows = append(append(rows, row{}), waiting...)
 		}
-	} else if len(stores) > 0 {
-		rows = append(rows, agentRows(stores, filter)...)
+	}
+	if v.agentsView && len(stores) > 0 {
+		rows = agentRows(stores, filter)
 	}
 	return rows, stores, errs
 }
@@ -199,7 +197,7 @@ func waitingRows(stores []*storeView, filter string) []row {
 				byName[key] = g
 				groups = append(groups, g)
 			}
-			g.rows = append(g.rows, row{store: sv, d: d, activity: app.Activity(d, sv.live), blocked: app.BlockedBy(d, sv.byID), unread: sv.seen.Unread(sv.a, d)})
+			g.rows = append(g.rows, row{store: sv, d: d, activity: app.Activity(d, sv.live), blocked: app.BlockedBy(d, sv.byID), unread: unreadOf(sv, d, app.Activity(d, sv.live))})
 		}
 	}
 	for _, g := range groups {
@@ -281,6 +279,9 @@ func treeRows(sv *storeView, ds []*dossier.Dossier, live map[string]string, v vi
 	order := func(ids []string) {
 		sort.SliceStable(ids, func(i, j int) bool {
 			a, b := ids[i], ids[j]
+			if sa, sb := sv.byID[a].Starred, sv.byID[b].Starred; sa != sb {
+				return sa
+			}
 			if rank != nil && rank[a] != rank[b] {
 				return rank[a].before(rank[b])
 			}
@@ -300,7 +301,7 @@ func treeRows(sv *storeView, ds []*dossier.Dossier, live map[string]string, v vi
 	walk = func(id string, depth int, last []bool, path map[string]bool) {
 		d := idx[id]
 		out = append(out, row{store: sv, d: d, activity: app.Activity(d, live), depth: depth,
-			last: append([]bool{}, last...), blocked: app.BlockedBy(d, idx), cycle: path[id], unread: sv.seen.Unread(sv.a, d)})
+			last: append([]bool{}, last...), blocked: app.BlockedBy(d, idx), cycle: path[id], unread: unreadOf(sv, d, app.Activity(d, live))})
 		if path[id] {
 			return
 		}
@@ -438,3 +439,10 @@ func links(sv *storeView, d *dossier.Dossier) []linked {
 
 // agentsNow lists the agents in herdr panes. Tests replace it.
 var agentsNow = app.Agents
+
+// unreadOf: the agent ended its turn and the user has not looked at it since,
+// as herdr tells ("done"). Every news from outside prompts the agent, so this
+// is the one sign.
+func unreadOf(sv *storeView, d *dossier.Dossier, activity string) bool {
+	return activity == "ready"
+}

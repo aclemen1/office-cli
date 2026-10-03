@@ -2,56 +2,74 @@ package tui
 
 import "github.com/aclemen1/dossier-cli/internal/dossier"
 
-// footer lists the keys that mean something now: first for the selected row,
-// then to move around. After g, only where g can go.
-func (m *model) footer() (row, nav [][2]string) {
+// keyGroup is one theme of the footer: its title and its keys.
+type keyGroup struct {
+	title string
+	keys  [][2]string
+}
+
+// footer lists the keys that mean something now, by theme: the selected
+// dossier, its agent, moving around, the view. After g, only where g goes.
+func (m *model) footer() []keyGroup {
 	if m.gPending {
-		return [][2]string{{"g", "top"}, {"d", "desk"}, {"i", "active"}, {"t", "to do"}, {"w", "by person"}, {"a", "all states"}},
-			[][2]string{{"esc", "cancel"}}
+		return []keyGroup{
+			{"go to", [][2]string{{"g", "top"}, {"d", "desk"}, {"p", "placeholder"}, {"i", "active"}, {"t", "to do"}, {"w", "by person"}, {"a", "all states"}, {"s", "starred"}, {"n", "agents without dossier"}}},
+			{"", [][2]string{{"esc", "cancel"}}},
+		}
 	}
+	var item, agent [][2]string
 	r := m.selected()
 	switch {
 	case m.selectedAgent() != nil:
-		row = [][2]string{{"c", "adopt as a dossier"}, {"o", "go to its tab"}}
+		item = [][2]string{{"c", "adopt as a dossier"}}
+		agent = [][2]string{{"o", "go to its tab"}}
 	case r != nil && r.desk:
-		row = [][2]string{{"o", "open the desk"}, {"c", "new dossier"}}
+		item = [][2]string{{"c", "new dossier"}}
+		agent = [][2]string{{"o", "open the desk"}}
+		if m.side {
+			agent = append(agent, [2]string{"O", "show, keep focus"})
+		}
 		if r.d.Run.Session != "" {
-			row = append(row, [2]string{"R", "restart"}, [2]string{"N", "new conversation"})
+			agent = append(agent, [2]string{"R", "restart"}, [2]string{"N", "new conversation"})
 		}
 	case r != nil:
 		d := r.d
 		if r.activity == "none" {
-			row = [][2]string{{"o", "start with its prompt"}, {"s", "start, no prompt"}}
+			agent = [][2]string{{"o", "start with its prompt"}, {"S", "start, no prompt"}}
 		} else {
-			row = [][2]string{{"o", "open"}, {"R", "restart"}}
-		}
-		if m.side {
-			row = append(row[:1:1], append([][2]string{{"O", "show, keep focus"}}, row[1:]...)...)
+			agent = [][2]string{{"o", "open"}}
+			if m.side {
+				agent = append(agent, [2]string{"O", "show, keep focus"})
+			}
+			agent = append(agent, [2]string{"R", "restart"})
 		}
 		switch d.State {
 		case dossier.Open:
-			row = append(row, [2]string{"W", "wait"}, [2]string{"e", "close"})
+			item = append(item, [2]string{"W", "wait"}, [2]string{"e", "close"})
 			if d.NoAction {
-				row = append(row, [2]string{"n", "needs action"})
+				item = append(item, [2]string{"n", "needs action"})
 			} else {
-				row = append(row, [2]string{"n", "no action"})
+				item = append(item, [2]string{"n", "no action"})
 			}
 		case dossier.Waiting:
-			row = append(row, [2]string{"u", "resume"}, [2]string{"W", "correct the wait"}, [2]string{"e", "close"})
+			item = append(item, [2]string{"u", "resume"}, [2]string{"W", "correct the wait"}, [2]string{"e", "close"})
 		case dossier.Done:
-			row = append(row, [2]string{"u", "reopen"})
+			item = append(item, [2]string{"u", "reopen"})
 		}
-		if !r.unread {
-			row = append(row, [2]string{"U", "unread"})
+		if d.Starred {
+			item = append(item, [2]string{"s", "unstar"})
+		} else {
+			item = append(item, [2]string{"s", "star"})
 		}
-		row = append(row, [2]string{"c", "new"}, [2]string{"#", "delete"})
+		item = append(item, [2]string{"c", "new"}, [2]string{"#", "delete"})
 	default:
-		row = [][2]string{{"c", "new dossier"}}
+		item = [][2]string{{"c", "new dossier"}}
 	}
 	if m.side && m.docked.id != "" {
-		row = append(row, [2]string{"h", "send home"})
+		agent = append(agent, [2]string{"h", "send home"})
 	}
-	nav = [][2]string{{"j k", "move"}, {"g", "go to"}}
+
+	nav := [][2]string{{"j k", "move"}, {"g", "go to"}}
 	if len(m.queue()) > 0 {
 		nav = append(nav, [2]string{"]", "needs you"})
 	}
@@ -59,10 +77,17 @@ func (m *model) footer() (row, nav [][2]string) {
 	if m.lastDocked.id != "" {
 		nav = append(nav, [2]string{"'", "back"})
 	}
+	nav = append(nav, [2]string{"/", "filter"})
+
+	detailWord := "hide detail"
+	if m.noDetail {
+		detailWord = "show detail"
+	}
 	side := "side"
 	if m.side {
 		side = "side off"
 	}
-	nav = append(nav, [2]string{"/", "filter"}, [2]string{"v", side}, [2]string{"tab", "detail"}, [2]string{"?", "keys"}, [2]string{"q", "quit"})
-	return row, nav
+	view := [][2]string{{"v", side}, {"tab", detailWord}, {"L", "panel " + m.layoutName()}, {"?", "keys"}, {"q", "quit"}}
+
+	return []keyGroup{{"dossier", item}, {"agent", agent}, {"move", nav}, {"view", view}}
 }

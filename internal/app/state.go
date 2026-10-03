@@ -556,3 +556,21 @@ func contains(l []string, s string) bool {
 	}
 	return false
 }
+
+// Star marks a dossier the user wants at hand: first in its store, shown in
+// every view of its state. Unstar removes the mark.
+func (a *App) Star(d *dossier.Dossier, on bool) error {
+	if IsDesk(d) {
+		return a.deskError()
+	}
+	if d.Starred == on {
+		return nil
+	}
+	d.Starred = on
+	if on {
+		_ = d.Log("starred")
+	} else {
+		_ = d.Log("unstarred")
+	}
+	return d.Save()
+}

@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
+	"github.com/aclemen1/dossier-cli/internal/app"
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 	"github.com/aclemen1/dossier-cli/internal/store"
 )
@@ -26,13 +27,14 @@ func Run(root string, noSide, reset bool) error {
 	if len(roots) == 0 {
 		return fmt.Errorf("no dossier store under %s: a store is a directory holding .dossier/config.toml", root)
 	}
+	go func() { _ = app.SetAgentView(roots) }()
 	m := &model{roots: roots, root: root}
 	saved := loadState(root)
 	if reset {
 		saved = defaultState
 	}
 	m.start = m.restore(saved, !noSide && os.Getenv("HERDR_PANE_ID") != "")
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err := tea.NewProgram(m).Run()
 	return err
 }
 
@@ -55,8 +57,15 @@ type model struct {
 	ask         *ask // the form on the bottom line, when one is open
 	filter      string
 	typing      bool
-	detail      bool
+	noDetail    bool   // the detail panel is hidden
+	layout      string // where the detail panel goes: auto, right or bottom
+	listY       int    // screen line of the list's first row, set by render
+	listW       int
+	listH       int
+	detailW     int
 	legend      bool // the detail panel shows what marks and colours mean
+	agentsView  bool // g n: only the agents that no dossier holds
+	starredView bool // g s: only the starred dossiers
 	gPending    bool // g was typed: the next key goes somewhere
 	side        bool // enter docks the agent at the TUI's right
 	placeholder string
@@ -80,7 +89,7 @@ func tick() tea.Cmd {
 	return tea.Tick(refreshEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *model) Init() tea.Cmd { return tea.Batch(tick(), m.start) }
+func (m *model) Init() tea.Cmd { return tea.Batch(tick(), m.start, tea.RequestBackgroundColor) }
 
 func (m *model) selected() *row {
 	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].d != nil {
@@ -94,7 +103,13 @@ func (m *model) reload() {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		key = m.rows[m.cursor].key()
 	}
-	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority})
+	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView})
+	// The agent shown at the right is being looked at.
+	for i := range m.rows {
+		if r := m.rows[i]; m.side && r.d != nil && r.store.root == m.docked.root && r.d.ID == m.docked.id {
+			m.rows[i].unread = false
+		}
+	}
 	m.waitW = 0
 	for _, r := range m.rows {
 		if r.d != nil && r.d.State == dossier.Waiting {
@@ -208,7 +223,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status, m.statusErr = msg.id+": "+firstLine(msg.out, msg.err.Error()), true
 		case msg.verb == "restart":
 			m.status, m.statusErr = msg.id+": session restarted, no prompt sent", false
-		case msg.verb == "park" || msg.verb == "unpark" || msg.verb == "unread":
+		case msg.verb == "park" || msg.verb == "unpark" || msg.verb == "star" || msg.verb == "unstar":
 		case msg.verb == "attach":
 			m.status, m.statusErr = msg.id+": pane focused", false
 		case msg.verb == "dock":
@@ -225,7 +240,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ask == nil && !m.typing {
 			return m, m.mouse(msg)
 		}
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		darkBackground = msg.IsDark()
+	case tea.KeyPressMsg:
 		if m.ask != nil {
 			finished, cmd := m.ask.key(msg)
 			if finished {
@@ -242,7 +259,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // aliases maps the Gmail-style keys onto the TUI's own.
-var aliases = map[string]string{"c": "+", "e": "x", "#": "D", "U": "m", "o": "enter"}
+var aliases = map[string]string{"c": "+", "e": "x", "#": "D", "o": "enter"}
 
 // goTo handles the second key of a g sequence, as in Gmail: g d the desk,
 // g i the active dossiers, g t to do, g w by person, g a all; gg the top.
@@ -256,18 +273,29 @@ func (m *model) goTo(k string) {
 	case "esc":
 		return
 	case "d":
+		if m.agentsView {
+			m.agentsView = false
+			m.reload()
+		}
 		m.toDesk()
 		return
+	case "p":
+		m.toPlaceholder()
+		return
 	case "i":
-		m.todo, m.all, m.byPerson = false, false, false
+		m.todo, m.all, m.byPerson, m.agentsView, m.starredView = false, false, false, false, false
 	case "t":
-		m.todo, m.all, m.byPerson = true, false, false
+		m.todo, m.all, m.byPerson, m.agentsView, m.starredView = true, false, false, false, false
 	case "w":
-		m.todo, m.all, m.byPerson = false, false, true
+		m.todo, m.all, m.byPerson, m.agentsView, m.starredView = false, false, true, false, false
 	case "a":
-		m.todo, m.all, m.byPerson = false, true, false
+		m.todo, m.all, m.byPerson, m.agentsView, m.starredView = false, true, false, false, false
+	case "s":
+		m.todo, m.all, m.byPerson, m.agentsView, m.starredView = false, false, false, false, true
+	case "n":
+		m.todo, m.all, m.byPerson, m.agentsView, m.starredView = false, false, false, true, false
 	default:
-		m.status, m.statusErr = "g "+k+": unknown; g then g, d, i, t, w or a", true
+		m.status, m.statusErr = "g "+k+": unknown; g then g, d, p, i, t, w, a, s or n", true
 		return
 	}
 	m.reload()
@@ -293,7 +321,7 @@ func (m *model) key(k string) tea.Cmd {
 			return cmd
 		}
 	}
-	if m.side && r != nil && (k == "enter" || (r.desk && k == "s")) {
+	if m.side && r != nil && (k == "enter" || (r.desk && k == "S")) {
 		return m.dock(r, true)
 	}
 	if m.side && r != nil && (k == "O" || k == "shift+enter") {
@@ -307,6 +335,8 @@ func (m *model) key(k string) tea.Cmd {
 	switch k {
 	case "v":
 		return m.toggleSide()
+	case "L":
+		m.cycleLayout()
 	case "h":
 		return m.sendHome()
 	case "'":
@@ -375,7 +405,7 @@ func (m *model) key(k string) tea.Cmd {
 		m.status, m.statusErr = "ingest: polling every source now…", false
 		return ingestNow(m.roots)
 	case "tab":
-		m.detail = !m.detail
+		m.noDetail = !m.noDetail
 	case "enter":
 		if r == nil {
 			break
@@ -386,12 +416,22 @@ func (m *model) key(k string) tea.Cmd {
 			m.status, m.statusErr = r.d.Label()+": opening its pane…", false
 		}
 		return run(r.store.root, r.d.ID, "attach")
-	case "s":
+	case "S":
 		if r == nil {
 			break
 		}
 		m.status, m.statusErr = r.d.Label()+": starting its session, no prompt…", false
 		return run(r.store.root, r.d.ID, "attach", "--no-prompt")
+	case "s":
+		if r == nil {
+			break
+		}
+		verb, say := "star", " starred"
+		if r.d.Starred {
+			verb, say = "unstar", " unstarred"
+		}
+		m.status, m.statusErr = r.d.Label()+say, false
+		return run(r.store.root, r.d.ID, verb)
 	case "+":
 		m.newDossier(r)
 	case "W", "u", "x", "D":
@@ -408,11 +448,6 @@ func (m *model) key(k string) tea.Cmd {
 		}
 		m.status, m.statusErr = r.d.Label()+say, false
 		return run(r.store.root, r.d.ID, verb)
-	case "m":
-		if r != nil && !r.unread {
-			m.status, m.statusErr = r.d.Label()+" marked unread", false
-			return run(r.store.root, r.d.ID, "unread")
-		}
 	case "R":
 		if r == nil {
 			break
@@ -427,20 +462,20 @@ func (m *model) key(k string) tea.Cmd {
 	return nil
 }
 
-func (m *model) typeFilter(k tea.KeyMsg) tea.Cmd {
-	switch k.Type {
-	case tea.KeyEnter:
+func (m *model) typeFilter(k tea.KeyPressMsg) tea.Cmd {
+	switch k.Keystroke() {
+	case "enter":
 		m.typing = false
-	case tea.KeyEsc:
+	case "esc":
 		m.typing, m.filter = false, ""
-	case tea.KeyBackspace:
+	case "backspace":
 		if r := []rune(m.filter); len(r) > 0 {
 			m.filter = string(r[:len(r)-1])
 		}
-	case tea.KeyRunes, tea.KeySpace:
-		m.filter += string(k.Runes)
-	case tea.KeyCtrlC:
+	case "ctrl+c":
 		return tea.Quit
+	default:
+		m.filter += k.Text
 	}
 	m.reload()
 	return nil
@@ -458,17 +493,18 @@ func firstLine(s, fallback string) string {
 // ---------------------------------------------------------------- view
 
 var (
-	cAccent  = lipgloss.AdaptiveColor{Light: "#5A4FCF", Dark: "#A99CFF"}
-	cMuted   = lipgloss.AdaptiveColor{Light: "#8A8A8A", Dark: "#6E6E6E"}
-	cFaint   = lipgloss.AdaptiveColor{Light: "#C8C8C8", Dark: "#3E3E3E"}
-	cText    = lipgloss.AdaptiveColor{Light: "#1F1F1F", Dark: "#E6E6E6"}
-	cOpen    = lipgloss.AdaptiveColor{Light: "#1F6FD1", Dark: "#6CB6FF"}
-	cWaiting = lipgloss.AdaptiveColor{Light: "#A04BC2", Dark: "#D59BF0"}
-	cDone    = lipgloss.AdaptiveColor{Light: "#8A8A8A", Dark: "#6E6E6E"}
-	cWorking = lipgloss.AdaptiveColor{Light: "#B7791F", Dark: "#F2C14E"}
-	cReady   = lipgloss.AdaptiveColor{Light: "#2F855A", Dark: "#68D391"}
-	cStopped = lipgloss.AdaptiveColor{Light: "#C53030", Dark: "#FC8181"}
-	cSelBg   = lipgloss.AdaptiveColor{Light: "#ECE9FF", Dark: "#2D2A4A"}
+	cAccent  = adaptive{Light: "#5A4FCF", Dark: "#A99CFF"}
+	cMuted   = adaptive{Light: "#8A8A8A", Dark: "#6E6E6E"}
+	cFaint   = adaptive{Light: "#C8C8C8", Dark: "#3E3E3E"}
+	cText    = adaptive{Light: "#1F1F1F", Dark: "#E6E6E6"}
+	cOpen    = adaptive{Light: "#1F6FD1", Dark: "#6CB6FF"}
+	cWaiting = adaptive{Light: "#A04BC2", Dark: "#D59BF0"}
+	cDone    = adaptive{Light: "#8A8A8A", Dark: "#6E6E6E"}
+	cWorking = adaptive{Light: "#B7791F", Dark: "#F2C14E"}
+	cReady   = adaptive{Light: "#2F855A", Dark: "#68D391"}
+	cStopped = adaptive{Light: "#C53030", Dark: "#FC8181"}
+	cSelBg   = adaptive{Light: "#ECE9FF", Dark: "#2D2A4A"}
+	cSel     = adaptive{Light: "#D4CCFF", Dark: "#4B3F99"}
 
 	sTitle   = lipgloss.NewStyle().Bold(true).Foreground(cAccent)
 	sMuted   = lipgloss.NewStyle().Foreground(cMuted)
@@ -528,6 +564,9 @@ func (m *model) wide() bool { return m.width >= 110 }
 
 // listHeight is the room between the top bar and the bottom bar.
 func (m *model) listHeight() int {
+	if m.listH > 0 {
+		return m.listH
+	}
 	h := m.height - 8
 	if h < 3 {
 		h = 3
@@ -535,37 +574,41 @@ func (m *model) listHeight() int {
 	return h
 }
 
-func (m *model) View() string {
+func (m *model) View() tea.View { return screen(m.render()) }
+
+func (m *model) render() string {
 	if m.width == 0 {
 		return ""
 	}
-	h := m.listHeight()
+	top, bottom := m.topBar(m.width-2), m.bottomBar(m.width-2)
+	h := max(3, m.height-len(top)-len(bottom)-3)
+	m.listY = 2 + len(top)
 	var body string
-	switch {
-	case m.wide():
+	switch show := !m.noDetail || m.legend; {
+	case show && m.detailAt() == "right":
 		lw := m.width * 52 / 100
 		dw := m.width - lw - 3
+		m.listW, m.listH = lw, h
 		list := m.listView(lw, h)
 		det := sPanel.Width(dw - 2).Height(h - 2).Render(m.detailView(dw-8, h-4))
 		body = lipgloss.JoinHorizontal(lipgloss.Top, list, "  ", det)
-	case m.detail || m.legend:
-		body = sPanel.Width(m.width - 4).Height(h - 2).Render(m.detailView(m.width-10, h-4))
+	case show && h >= 12:
+		lh := h * 55 / 100
+		dh := h - lh
+		m.listW, m.listH = m.width, lh
+		list := m.listView(m.width, lh)
+		det := sPanel.Width(m.width - 4).Height(dh - 2).Render(m.detailView(m.width-10, dh-4))
+		body = lipgloss.JoinVertical(lipgloss.Left, list, det)
 	default:
+		m.listW, m.listH = m.width, h
 		body = m.listView(m.width, h)
 	}
 	pad := lipgloss.NewStyle().PaddingLeft(1)
-	return lipgloss.JoinVertical(lipgloss.Left, "", pad.Render(m.topBar()), "", body, "", pad.Render(m.bottomBar()))
+	return lipgloss.JoinVertical(lipgloss.Left, "", pad.Render(strings.Join(top, "\n")), "", body, "", pad.Render(strings.Join(bottom, "\n")))
 }
 
-func (m *model) topBar() string {
-	var parts []string
-	for _, sv := range m.stores {
-		c := sv.count
-		parts = append(parts, fmt.Sprintf("%s  %s  %s",
-			sBold.Render(sv.name),
-			stateStyle(dossier.Open).Render(fmt.Sprintf("%d open", c[dossier.Open])),
-			stateStyle(dossier.Waiting).Render(fmt.Sprintf("%d waiting", c[dossier.Waiting]))))
-	}
+// topBar lays the header out on as many lines as the width needs.
+func (m *model) topBar(width int) []string {
 	scope := "active"
 	if m.all {
 		scope = "all states"
@@ -577,65 +620,78 @@ func (m *model) topBar() string {
 	if m.byPriority {
 		order = "by priority"
 	}
-	scope += "  ·  " + order
-	if m.side {
-		scope += "  ·  side"
-	}
+	segs := []string{sTitle.Render("dossier"), sMuted.Render(scope), sMuted.Render(order)}
 	if m.byPerson {
-		scope = "waiting, by person"
+		segs = []string{sTitle.Render("dossier"), sMuted.Render("waiting, by person")}
 	}
-	unread := 0
-	counted := map[string]bool{}
-	for _, r := range m.rows {
-		if r.d != nil && r.unread && !counted[r.store.root+r.d.ID] {
-			counted[r.store.root+r.d.ID] = true
-			unread++
-		}
+	if m.agentsView {
+		segs = []string{sTitle.Render("dossier"), sMuted.Render("agents without dossier")}
 	}
-	left := sTitle.Render("dossier") + sMuted.Render("  ·  "+scope+"  ·  ") + strings.Join(parts, sFaint.Render("   │   "))
-	if unread > 0 {
-		left += sFaint.Render("   │   ") + lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render(fmt.Sprintf("• %d unread", unread))
+	if m.starredView {
+		segs = []string{sTitle.Render("dossier"), sMuted.Render("starred")}
+	}
+	if m.side {
+		segs = append(segs, sMuted.Render("side"))
+	}
+	for _, sv := range m.stores {
+		c := sv.count
+		segs = append(segs, fmt.Sprintf("%s  %s  %s",
+			sBold.Render(sv.name),
+			stateStyle(dossier.Open).Render(fmt.Sprintf("%d open", c[dossier.Open])),
+			stateStyle(dossier.Waiting).Render(fmt.Sprintf("%d waiting", c[dossier.Waiting]))))
 	}
 	if n := m.forYou(); n > 0 {
-		left += sFaint.Render("   │   ") + lipgloss.NewStyle().Foreground(cWorking).Bold(true).Render(fmt.Sprintf("] %d for you", n))
+		segs = append(segs, lipgloss.NewStyle().Foreground(cWorking).Bold(true).Render(fmt.Sprintf("] %d for you", n)))
 	}
 	if m.filter != "" || m.typing {
 		cur := ""
 		if m.typing {
 			cur = "▏"
 		}
-		left += sMuted.Render("     filter ") + sText.Render(m.filter+cur)
+		segs = append(segs, sMuted.Render("filter ")+sText.Render(m.filter+cur))
 	}
-	return lipgloss.NewStyle().MaxWidth(m.width - 1).Render(left)
+	return flow(segs, sFaint.Render("  ·  "), width)
 }
 
-func (m *model) bottomBar() string {
+// bottomBar lays the status and the keys out on as many lines as the width needs.
+func (m *model) bottomBar(width int) []string {
+	wrap := func(s string) []string {
+		return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
+	}
 	if m.ask != nil {
-		return lipgloss.NewStyle().MaxWidth(m.width - 1).Render(m.ask.view())
+		return wrap(m.ask.view())
 	}
-	keyLine := func(keys [][2]string) string {
-		var parts []string
-		for _, k := range keys {
-			if k[0] == "tab" && m.wide() {
-				continue
-			}
-			parts = append(parts, sText.Render(k[0])+" "+sMuted.Render(k[1]))
-		}
-		return strings.Join(parts, sFaint.Render("  ·  "))
-	}
-	row, nav := m.footer()
-	line := keyLine(row) + "\n" + keyLine(nav)
-	if len(m.errs) > 0 {
-		line = lipgloss.NewStyle().Foreground(cStopped).Render(m.errs[0])
-	}
+	var lines []string
 	if m.status != "" {
 		st := lipgloss.NewStyle().Foreground(cReady)
 		if m.statusErr {
 			st = lipgloss.NewStyle().Foreground(cStopped)
 		}
-		line = st.Render(m.status) + "\n" + line
+		lines = append(lines, wrap(st.Render(m.status))...)
 	}
-	return lipgloss.NewStyle().MaxWidth(m.width - 1).Render(line)
+	if len(m.errs) > 0 {
+		return append(lines, wrap(lipgloss.NewStyle().Foreground(cStopped).Render(m.errs[0]))...)
+	}
+	// One theme per line, its title in a column of its own; a long theme wraps under itself.
+	const titleW = 9
+	title := lipgloss.NewStyle().Foreground(cAccent).Width(titleW)
+	for _, g := range m.footer() {
+		if len(g.keys) == 0 {
+			continue
+		}
+		var segs []string
+		for _, k := range g.keys {
+			segs = append(segs, sText.Render(k[0])+" "+sMuted.Render(k[1]))
+		}
+		for i, l := range flow(segs, sFaint.Render("  ·  "), width-titleW) {
+			head := strings.Repeat(" ", titleW)
+			if i == 0 {
+				head = title.Render(g.title)
+			}
+			lines = append(lines, head+l)
+		}
+	}
+	return lines
 }
 
 func (m *model) listView(w, h int) string {
@@ -651,7 +707,11 @@ func (m *model) listView(w, h int) string {
 	}
 	var lines []string
 	for i := m.offset; i < len(m.rows) && len(lines) < h; i++ {
-		lines = append(lines, m.rowView(m.rows[i], i == m.cursor, w))
+		line := m.rowView(m.rows[i], false, w-1)
+		if i == m.cursor {
+			line = selectLine(line, w-1)
+		}
+		lines = append(lines, line)
 	}
 	if m.cursor < 0 || m.cursor >= len(m.rows) || !m.rows[m.cursor].selectable() {
 		lines = append(lines, "", sMuted.Render("   nothing to show: g a shows every state, esc clears the filter"))
@@ -659,7 +719,7 @@ func (m *model) listView(w, h int) string {
 	for len(lines) < h {
 		lines = append(lines, "")
 	}
-	return lipgloss.NewStyle().Width(w).Render(strings.Join(lines, "\n"))
+	return strings.Join(withBar(lines[:h], w, len(m.rows), m.offset), "\n")
 }
 
 func (m *model) rowView(r row, sel bool, w int) string {
@@ -709,7 +769,11 @@ func (m *model) rowView(r row, sel bool, w int) string {
 	if r.unread {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
 	}
-	prefix := " " + dot + " " + activityMark(r.activity) + "  " + label + "  " + state + " " + m.waitCell(d) + sFaint.Render(tree.String())
+	star := "  " // ⭐ takes two columns
+	if d.Starred {
+		star = "⭐"
+	}
+	prefix := " " + dot + " " + activityMark(r.activity) + " " + star + " " + label + "  " + state + " " + m.waitCell(d) + sFaint.Render(tree.String())
 	var tail []string
 	if r.cycle {
 		tail = append(tail, "↻ cycle")
@@ -821,6 +885,8 @@ func ago(t time.Time) string {
 }
 
 func (m *model) detailView(w, h int) string {
+	// The last column is kept for the scrollbar.
+	m.detailW, w = w, w-1
 	r := m.selected()
 	var lines []string
 	add := func(s ...string) {
@@ -950,12 +1016,18 @@ func (m *model) window(lines []string, h int) string {
 	if m.scroll < 0 {
 		m.scroll = 0
 	}
+	total := len(lines)
 	lines = lines[m.scroll:]
 	if len(lines) > h {
-		lines = lines[:h-1]
-		lines = append(lines, sFaint.Render("… J to scroll"))
+		lines = lines[:h]
 	}
-	return strings.Join(lines, "\n")
+	if total <= h {
+		return strings.Join(lines, "\n")
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(withBar(lines, m.detailW, total, m.scroll), "\n")
 }
 
 // sourceKind names what a source reference points at: a Gmail thread, a

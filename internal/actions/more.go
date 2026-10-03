@@ -169,14 +169,14 @@ func init() {
 
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "dock", Summary: "Show a dossier's agent in place of a placeholder pane, e.g. the one at the TUI's right.",
-		Discussion: "The placeholder waits in a tab of its own; `dossier undock` gives it its place back and moves the agent to its " +
-			"home workspace, and so does any session start, prompt, restart or close, since the ACP server treats the pane's " +
-			"current tab as the session's own. The geometry of the placeholder's tab does not change.",
+		Discussion: "The agent and the placeholder exchange places: the placeholder waits in the agent's own tab, where the agent was. " +
+			"`dossier undock` exchanges them back, and so do a restart and a close, which would otherwise leave a hole. A prompt leaves " +
+			"the agent where it is. The geometry of both tabs does not change.",
 		Params: []spec.Param{idParam("Dossier id, or desk."),
 			{Name: "placeholder", Kind: spec.String, Required: true, Help: "herdr pane id whose place the agent takes."},
 			{Name: "no-focus", Kind: spec.Bool, Help: "Leave the focus where it is, e.g. in the TUI."}},
 		Effects: []string{"Starts or resumes the session when its pane is gone.",
-			"Moves the agent's pane into the placeholder's tab, swaps them, and moves the placeholder to a tab of its own; focuses the agent."},
+			"Exchanges the agent's pane with the placeholder through a temporary pane, since herdr swaps panes only within a tab; focuses the agent unless --no-focus."},
 		Examples: []string{"dossier dock U-0033 --placeholder w5:p8"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
@@ -192,10 +192,10 @@ func init() {
 		},
 	})
 	spec.Register(&spec.Action{
-		Category: "dossier", Name: "undock", Summary: "Move a docked agent pane back to a tab of its own.",
+		Category: "dossier", Name: "undock", Summary: "Send a docked agent back to its own tab; the placeholder takes its place again.",
 		Params: []spec.Param{idParam("Dossier id, or desk."),
 			{Name: "placeholder", Kind: spec.String, Help: "Only when the agent holds this placeholder's place; otherwise nothing."}},
-		Effects:  []string{"Moves the pane into a new tab of its home workspace, labelled like the dossier; nothing when it is not docked."},
+		Effects:  []string{"Exchanges the agent and the placeholder again; without a placeholder left, moves the agent to a new tab of its home workspace. Nothing when it is not docked."},
 		Examples: []string{"dossier undock U-0033"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {

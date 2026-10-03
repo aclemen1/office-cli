@@ -304,6 +304,9 @@ func init() {
 				if len(x.WaitUntil) >= 10 {
 					extra += " until " + x.WaitUntil[:10]
 				}
+				if x.Starred {
+					extra += " · starred"
+				}
 				if x.NoAction {
 					extra += " · no action"
 				}
@@ -435,21 +438,29 @@ func init() {
 	})
 
 	// ---------------------------------------------------------------- state
-	spec.Register(&spec.Action{
-		Category: "dossier", Name: "unread", Summary: "Mark a dossier as unread: it shows as such until you open its pane again.",
-		Params:   []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID.")},
-		Effects:  []string{"Writes the user's visits file (seen.json in the user config directory); `dossier attach` marks the dossier read."},
-		Examples: []string{"dossier unread D-0042"},
-		Run: func(ctx *spec.Context) (any, error) {
-			return withApp(ctx, false, func(a *app.App) (any, error) {
-				d, err := a.LoadAny(ctx.Str("id"))
-				if err != nil {
-					return nil, err
-				}
-				return map[string]any{"id": d.ID, "unread": true}, a.MarkUnread(d)
-			})
-		},
-	})
+	for _, v := range []struct {
+		name, summary string
+		on            bool
+	}{
+		{"star", "Star a dossier: first in its store, shown in every view of its state, and in the starred view.", true},
+		{"unstar", "Remove a dossier's star.", false},
+	} {
+		spec.Register(&spec.Action{
+			Category: "state", Name: v.name, Summary: v.summary,
+			Params:   []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID.")},
+			Effects:  []string{"Sets or removes starred in dossier.md; the sources see no transition."},
+			Examples: []string{"dossier " + v.name + " D-0042"},
+			Run: func(ctx *spec.Context) (any, error) {
+				return withApp(ctx, true, func(a *app.App) (any, error) {
+					d, err := a.LoadAny(ctx.Str("id"))
+					if err != nil {
+						return nil, err
+					}
+					return map[string]any{"id": d.ID, "starred": v.on}, a.Star(d, v.on)
+				})
+			},
+		})
+	}
 
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "delete", Summary: "Delete a dossier: withdraw its signal, close its tab, drop the links to it, remove its directory.",
@@ -643,6 +654,28 @@ func init() {
 				return nil, err
 			}
 			return nil, tui.Run(root, ctx.Bool("no-side"), ctx.Bool("reset"))
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "store", Name: "herdr-view", Summary: "Hide the stores' agents from herdr's agent list, except those that wait for you.",
+		Discussion: "Sets herdr's agent view (agent.view.set, source dossier) on the workspaces named by --workspace in each store's [acp] command. " +
+			"An agent there stays listed while it asks a permission or waits for your turn, or when its workspace is on screen. " +
+			"herdr forgets the view when its server restarts; the TUI sets it at each start.",
+		Params: []spec.Param{
+			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "clear", Kind: spec.Bool, Help: "Show every agent again."},
+		},
+		Examples: []string{"dossier herdr-view", "dossier herdr-view --clear"},
+		Run: func(ctx *spec.Context) (any, error) {
+			if ctx.Bool("clear") {
+				return map[string]any{"view": "cleared"}, app.ClearAgentView()
+			}
+			root, err := rootOf(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"view": "set"}, app.SetAgentView(store.Discover(root))
 		},
 	})
 

@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/aclemen1/dossier-cli/internal/dossier"
 )
@@ -22,12 +22,12 @@ type askField struct {
 	label, value, hint string
 }
 
-func (a *ask) key(k tea.KeyMsg) (finished bool, cmd tea.Cmd) {
+func (a *ask) key(k tea.KeyPressMsg) (finished bool, cmd tea.Cmd) {
 	f := &a.fields[a.i]
-	switch k.Type {
-	case tea.KeyEsc:
+	switch k.Keystroke() {
+	case "esc":
 		return true, nil
-	case tea.KeyEnter:
+	case "enter":
 		if a.i < len(a.fields)-1 {
 			a.i++
 			return false, nil
@@ -37,16 +37,16 @@ func (a *ask) key(k tea.KeyMsg) (finished bool, cmd tea.Cmd) {
 			values[i] = strings.TrimSpace(f.value)
 		}
 		return true, a.done(values)
-	case tea.KeyBackspace:
+	case "backspace":
 		if r := []rune(f.value); len(r) > 0 {
 			f.value = string(r[:len(r)-1])
 		}
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		f.value = ""
-	case tea.KeyRunes, tea.KeySpace:
-		f.value += string(k.Runes)
-	case tea.KeyCtrlC:
+	case "ctrl+c":
 		return true, tea.Quit
+	default:
+		f.value += k.Text
 	}
 	return false, nil
 }

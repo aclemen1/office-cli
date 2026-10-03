@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/aclemen1/dossier-cli/internal/app"
 )
@@ -81,7 +81,7 @@ func (m *model) adopt(ag *app.AgentPane) {
 
 func (m *model) agentRowView(r row, sel bool, w int) string {
 	ag := r.agent
-	line := "   " + activityMark(r.activity) + "  " + sBold.Render(truncate(filepath.Base(ag.Cwd), 18)) + "  " +
+	line := "   " + activityMark(r.activity) + "    " + sBold.Render(truncate(filepath.Base(ag.Cwd), 18)) + "  " +
 		sText.Render(truncate(ag.Title, w-30))
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {

@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/aclemen1/dossier-cli/internal/app"
 )
 
 // Side mode keeps a placeholder pane at the TUI's right; enter puts the
@@ -100,18 +102,16 @@ func (m *model) dock(r *row, focus bool) tea.Cmd {
 	}
 }
 
-// listTop is the screen line of the list's first row: a blank line, the top
-// bar, a blank line.
-const listTop = 3
-
 // mouse: a click selects a row and a click on the selected row opens it, as
 // enter does; the wheel moves over the list, or scrolls the detail panel.
-func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
-	inList := m.wide() && msg.X < m.width*52/100 || !m.wide() && !m.detail && !m.legend
-	switch msg.Button {
-	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+func (m *model) mouse(ev tea.MouseMsg) tea.Cmd {
+	msg := ev.Mouse()
+	// render records where the list is: listY, listW and listH.
+	inList := msg.X < m.listW && msg.Y >= m.listY && msg.Y < m.listY+m.listH
+	switch {
+	case isWheel(ev):
 		step := 1
-		if msg.Button == tea.MouseButtonWheelUp {
+		if msg.Button == tea.MouseWheelUp {
 			step = -1
 		}
 		if inList {
@@ -120,15 +120,15 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 			m.scroll = 0
 		}
 		return nil
-	case tea.MouseButtonLeft:
-		if msg.Action != tea.MouseActionRelease || !inList {
+	case isLeftRelease(ev):
+		if !inList {
 			return nil
 		}
 	default:
 		return nil
 	}
-	i := m.offset + msg.Y - listTop
-	if msg.Y < listTop || msg.Y-listTop >= m.listHeight() || i >= len(m.rows) || !m.rows[i].selectable() {
+	i := m.offset + msg.Y - m.listY
+	if i >= len(m.rows) || !m.rows[i].selectable() {
 		return nil
 	}
 	if i != m.cursor {
@@ -139,7 +139,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 }
 
 // heal handles a docked agent whose pane is gone, e.g. after /exit: its
-// placeholder waits alone in its tab, so it comes back to the TUI's right.
+// placeholder waits in the gone agent's tab, so it comes back to the TUI's right.
 func (m *model) heal() tea.Cmd {
 	if !m.side || m.docked.id == "" {
 		return nil
@@ -188,4 +188,41 @@ func (m *model) ratio() string {
 		r = 0.35
 	}
 	return strconv.FormatFloat(r, 'f', 4, 64)
+}
+
+func isWheel(ev tea.MouseMsg) bool {
+	_, ok := ev.(tea.MouseWheelMsg)
+	return ok
+}
+
+func isLeftRelease(ev tea.MouseMsg) bool {
+	r, ok := ev.(tea.MouseReleaseMsg)
+	return ok && r.Button == tea.MouseLeft
+}
+
+// screen wraps a rendered frame: full screen, with mouse clicks and the wheel.
+func screen(s string) tea.View {
+	v := tea.NewView(s)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
+}
+
+// toPlaceholder focuses the placeholder: at the TUI's right, or in its own
+// tab while an agent holds its place.
+func (m *model) toPlaceholder() {
+	if !m.side || m.placeholder == "" {
+		m.status, m.statusErr = "no placeholder: v turns side mode on", true
+		return
+	}
+	tab, err := app.PaneTab(m.placeholder)
+	if err != nil {
+		m.status, m.statusErr = "the placeholder pane is gone: v twice opens a new one", true
+		return
+	}
+	if tab == os.Getenv("HERDR_TAB_ID") {
+		_ = exec.Command("herdr", "pane", "focus", "--pane", os.Getenv("HERDR_PANE_ID"), "--direction", "right").Run()
+		return
+	}
+	_ = exec.Command("herdr", "tab", "focus", tab).Run()
 }

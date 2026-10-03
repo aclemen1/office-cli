@@ -31,6 +31,8 @@ var tools = []tool{
 	{name: "resume", action: "resume", self: []string{"id"}, hide: []string{"prompt"}, description: "Bring a waiting dossier back to open."},
 	{name: "park", action: "park", self: []string{"id"}, description: "Mark a dossier as needing no action from the user for now, e.g. an item to raise at the next meeting. Anything new on it clears the mark."},
 	{name: "unpark", action: "unpark", self: []string{"id"}, description: "Mark a dossier as needing action from the user again."},
+	{name: "star", action: "star", self: []string{"id"}, description: "Star a dossier the user wants at hand: first in its store, always shown. Only when the user asks."},
+	{name: "unstar", action: "unstar", self: []string{"id"}, description: "Remove a dossier's star, when the user asks."},
 	{name: "close", action: "close", self: []string{"id"}, description: "Close a dossier once the user says it is settled."},
 	{name: "delete", action: "delete", self: []string{"id"}, description: "Delete a dossier that should not exist (a test, a mistake), after the user asked: its signal is withdrawn and its directory removed. A settled affair gets close instead."},
 	{name: "open", action: "open", self: []string{"in"}, hide: []string{"source", "thread", "url"},

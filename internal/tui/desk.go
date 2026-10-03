@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/aclemen1/dossier-cli/internal/app"
 	"github.com/aclemen1/dossier-cli/internal/dossier"
@@ -36,7 +36,7 @@ func (m *model) conversation(d *dossier.Dossier) app.Conversation {
 func (m *model) deskKey(k string, r *row) (tea.Cmd, bool) {
 	d, root := r.d, r.store.root
 	switch k {
-	case "enter", "s", "o":
+	case "enter", "S", "o":
 		m.status, m.statusErr = d.Label()+": opening the desk…", false
 		return run(root, d.ID, "attach"), true
 	case "W", "u", "x", "D", "n", "m":
@@ -81,7 +81,7 @@ func (m *model) deskHeader(r row, sel bool, w int) string {
 	if r.unread {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
 	}
-	line := " " + dot + " " + activityMark(r.activity) + "  " + sTitle.Render(strings.ToUpper(r.header)) +
+	line := " " + dot + " " + activityMark(r.activity) + "    " + sTitle.Render(strings.ToUpper(r.header)) +
 		sMuted.Render("  desk · "+activityWord(r.activity)) + sFaint.Render("  "+r.store.root)
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {
@@ -140,25 +140,56 @@ func legendView(w int, add func(...string)) {
 	item := func(mark, text string) { add(mark + "  " + sText.Render(truncate(text, w-4))) }
 	add(sTitle.Render("Keys and legend") + sMuted.Render("  ·  ? closes it  ·  J K scroll"))
 
-	section("Keys, after Gmail and vim; the older key works too")
-	for _, kv := range [][2]string{
-		{"c  (+)", "new dossier; on an agent without dossier, adopt it"},
-		{"o  enter", "open the agent's pane; without a session, start it"},
-		{"O  shift+enter", "side mode: show the agent at the right, keep the focus in the TUI"},
-		{"e  (x)", "close"}, {"#  (D)", "delete"}, {"U  (m)", "mark unread"},
-		{"W  u", "wait, resume"}, {"n", "no action for now"},
-		{"s  R  N", "start without prompt, restart, new desk conversation"},
-		{"v", "side mode: agents open at the TUI's right"},
-		{"h", "send the agent at the right back to its tab; the placeholder returns"},
-		{"]", "next agent that needs you: a permission, your turn, then unread"},
-		{"[", "the agent whose conversation moved last"},
-		{"'", "back to the agent shown before"},
-		{"j k  gg G", "move, top, end"},
-		{"g d  (b)", "go to the desk"}, {"g i", "active dossiers"},
-		{"g t  (t)", "to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},
-		{"/  esc", "filter, clear"}, {"i  p  tab", "ingest now, priority order, detail panel"},
+	add("", sMuted.Render("Keys after Gmail and vim; the older key, in brackets, works too."))
+	keyW := 15
+	desc := lipgloss.NewStyle().Width(max(10, w-keyW)).Inherit(sMuted)
+	for _, theme := range []struct {
+		title string
+		keys  [][2]string
+	}{
+		{"Dossier", [][2]string{
+			{"c  (+)", "new dossier; on an agent without dossier, adopt it"},
+			{"W  u", "wait on someone; resume, or reopen a closed one"},
+			{"e  (x)", "close"}, {"n", "no action for now, or needs action again"},
+			{"s", "star or unstar: first in its store, always at hand"}, {"#  (D)", "delete"},
+		}},
+		{"Agent", [][2]string{
+			{"o  enter", "open the agent's pane; without a session, start it with its prompt"},
+			{"O  shift+enter", "side mode: show the agent at the right, keep the focus here"},
+			{"S", "start a session without a prompt"},
+			{"R", "restart: same conversation, fresh process"},
+			{"N", "the desk: a new conversation"},
+			{"h", "send the agent at the right back to its tab"},
+		}},
+		{"Move", [][2]string{
+			{"j k  ↑ ↓", "move"}, {"gg  G", "top, end"},
+			{"]", "next agent that needs you: a permission, your turn, unread"},
+			{"[", "the agent whose conversation moved last"},
+			{"'", "back to the agent shown before"},
+			{"g d  (b)", "the desk"}, {"g p", "the placeholder"},
+			{"g i  g t  (t)", "active dossiers, to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},
+			{"g s", "starred dossiers"}, {"g n", "agents running without a dossier"},
+			{"/  esc", "filter, clear it"}, {"J K", "scroll the detail panel"},
+		}},
+		{"View", [][2]string{
+			{"v", "side mode: agents open at the TUI's right"},
+			{"tab", "hide or show the detail panel"},
+			{"L", "detail panel at the right, below, or by width"},
+			{"p", "order by priority or by number"},
+			{"i", "ingest now"}, {"?", "these keys"}, {"q", "quit"},
+		}},
 	} {
-		add(sText.Render(fmt.Sprintf("%-11s", kv[0])) + sMuted.Render(truncate(kv[1], w-12)))
+		section(theme.title)
+		for _, kv := range theme.keys {
+			lines := strings.Split(desc.Render(kv[1]), "\n")
+			for i, l := range lines {
+				k := ""
+				if i == 0 {
+					k = kv[0]
+				}
+				add(sText.Render(fmt.Sprintf("%-*s", keyW, k)) + l)
+			}
+		}
 	}
 
 	section("Agent, first mark of a row")
@@ -182,7 +213,8 @@ func legendView(w int, add func(...string)) {
 	item(sFaint.Render(fmt.Sprintf("%-9s", "no action")), "open, but nothing to do for now (n)")
 
 	section("Marks")
-	item(lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•"), "unread: something new since you last opened its pane; the title is bold")
+	item(lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•"), "unread: the agent ended its turn and you have not looked at it since (herdr); the title is bold")
+	item("⭐", "starred: first in its store, kept in to do even when it waits")
 	item(sMuted.Render("⛓"), "blocked by the dossiers named after it")
 	item(sMuted.Render("↻"), "already shown above: the links form a cycle")
 	item(sFaint.Render("└─"), "included by the dossier above")

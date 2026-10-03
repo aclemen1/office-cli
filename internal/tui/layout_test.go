@@ -1,0 +1,77 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+)
+
+func TestFlowWrapsSegmentsWithoutCuttingThem(t *testing.T) {
+	lines := flow([]string{"aaaa", "bbbb", "cccc"}, " · ", 11)
+	if len(lines) != 2 || lines[0] != "aaaa · bbbb" || lines[1] != "cccc" {
+		t.Fatalf("lines %q", lines)
+	}
+	if got := flow([]string{"", "x"}, " · ", 10); len(got) != 1 || got[0] != "x" {
+		t.Fatalf("empty segments should vanish: %q", got)
+	}
+}
+
+func TestTheScrollbarShowsWhereTheViewIs(t *testing.T) {
+	if bar := scrollbar(4, 4, 0); strings.TrimSpace(strings.Join(bar, "")) != "" {
+		t.Fatalf("no scrolling, no bar: %q", bar)
+	}
+	thumb := func(bar []string) int {
+		for i, b := range bar {
+			if ansi.Strip(b) == "┃" {
+				return i
+			}
+		}
+		return -1
+	}
+	if top, bottom := thumb(scrollbar(10, 100, 0)), thumb(scrollbar(10, 100, 90)); top != 0 || bottom < 8 {
+		t.Fatalf("thumb at top %d, at bottom %d", top, bottom)
+	}
+	for _, l := range withBar([]string{"abc", "a very long line indeed"}, 10, 40, 0) {
+		if w := lipgloss.Width(l); w != 10 {
+			t.Fatalf("width %d of %q", w, ansi.Strip(l))
+		}
+	}
+}
+
+func TestTheSelectedLineIsPlainAndMarked(t *testing.T) {
+	line := selectLine(" "+lipgloss.NewStyle().Foreground(cAccent).Render("U-0001")+" open", 20)
+	plain := ansi.Strip(line)
+	if !strings.HasPrefix(plain, "▌U-0001 open") || lipgloss.Width(line) != 20 {
+		t.Fatalf("selected %q (width %d)", plain, lipgloss.Width(line))
+	}
+}
+
+func TestTheHeaderAndFooterWrapOnANarrowTUI(t *testing.T) {
+	m := &model{width: 40, height: 30, side: true}
+	for _, l := range append(m.topBar(38), m.bottomBar(38)...) {
+		if lipgloss.Width(l) > 38 {
+			t.Fatalf("line wider than the TUI: %q", ansi.Strip(l))
+		}
+	}
+	if n := len(m.bottomBar(38)); n < 4 {
+		t.Fatalf("a narrow footer should wrap over several lines, got %d", n)
+	}
+}
+
+func TestLCyclesThePanelPlace(t *testing.T) {
+	m := &model{width: 80}
+	if m.detailAt() != "bottom" {
+		t.Fatal("auto puts the panel below a narrow list")
+	}
+	m.key("L")
+	if m.detailAt() != "right" {
+		t.Fatalf("L once: %s", m.layoutName())
+	}
+	m.key("L")
+	m.key("L")
+	if m.layoutName() != "auto" {
+		t.Fatalf("L three times comes back to auto: %s", m.layoutName())
+	}
+}

@@ -76,3 +76,22 @@ func TestANewDeskConversationKeepsTheOldOneSearchable(t *testing.T) {
 		t.Fatalf("grep %+v", hits)
 	}
 }
+
+func TestStarMarksADossierButNotTheDesk(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Affaire", NoStart: true})
+	d := mustGet(t, f, "1")
+	if err := f.a.Star(d, true); err != nil {
+		t.Fatal(err)
+	}
+	if d = mustGet(t, f, "1"); !d.Starred {
+		t.Fatal("the star is not saved")
+	}
+	f.a.Star(d, false)
+	if d = mustGet(t, f, "1"); d.Starred {
+		t.Fatal("unstar kept the star")
+	}
+	if err := f.a.Star(f.a.Desk(), true); err == nil {
+		t.Fatal("the desk took a star")
+	}
+}

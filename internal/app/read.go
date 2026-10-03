@@ -37,6 +37,7 @@ type Row struct {
 	Alias     string   `json:"alias,omitempty"`
 	Label     string   `json:"label"`
 	NoAction  bool     `json:"no_action,omitempty"`
+	Starred   bool     `json:"starred,omitempty"`
 	Updated   string   `json:"updated"`
 	Pending   int      `json:"pending_transitions,omitempty"`
 	BlockedBy []string `json:"blocked_by,omitempty"`
@@ -85,7 +86,7 @@ func (a *App) List(status, in string) ([]Row, error) {
 			continue
 		}
 		rows = append(rows, Row{ID: d.ID, Title: d.Title, State: d.State, Activity: Activity(d, panesNow),
-			WaitingOn: d.WaitingOn, WaitUntil: d.WaitUntil, Alias: d.Alias, Label: d.Label(), NoAction: d.NoAction, Updated: d.Updated, Pending: len(d.Run.PendingTransitions), BlockedBy: BlockedBy(d, idx)})
+			WaitingOn: d.WaitingOn, WaitUntil: d.WaitUntil, Alias: d.Alias, Label: d.Label(), NoAction: d.NoAction, Starred: d.Starred, Updated: d.Updated, Pending: len(d.Run.PendingTransitions), BlockedBy: BlockedBy(d, idx)})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	return rows, nil

@@ -596,7 +596,7 @@ func (a *App) Attach(d *dossier.Dossier, noPrompt bool) error {
 	if d.Run.TabID != "" {
 		_ = exec.Command("herdr", "tab", "focus", d.Run.TabID).Run()
 	}
-	return a.MarkSeen(d)
+	return nil
 }
 
 // ensureRunning starts or resumes the session so that its pane is alive.

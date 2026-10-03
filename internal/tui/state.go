@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // The TUI's state lives in the user's config directory, one entry per root,
@@ -18,17 +18,20 @@ type savedDock struct {
 }
 
 type savedState struct {
-	All        bool      `json:"all,omitempty"`
-	Todo       bool      `json:"todo,omitempty"`
-	ByPerson   bool      `json:"by_person,omitempty"`
-	ByPriority bool      `json:"by_priority"`
-	Detail     bool      `json:"detail,omitempty"`
-	Filter     string    `json:"filter,omitempty"`
-	Cursor     string    `json:"cursor,omitempty"`
-	Side       bool      `json:"side"`
-	Docked     savedDock `json:"docked,omitempty"`
-	LastDocked savedDock `json:"last_docked,omitempty"`
-	SideRatio  float64   `json:"side_ratio,omitempty"` // the TUI's share of the width in side mode
+	All         bool      `json:"all,omitempty"`
+	Todo        bool      `json:"todo,omitempty"`
+	ByPerson    bool      `json:"by_person,omitempty"`
+	ByPriority  bool      `json:"by_priority"`
+	NoDetail    bool      `json:"no_detail,omitempty"`
+	Layout      string    `json:"layout,omitempty"`
+	Filter      string    `json:"filter,omitempty"`
+	Cursor      string    `json:"cursor,omitempty"`
+	Side        bool      `json:"side"`
+	Docked      savedDock `json:"docked,omitempty"`
+	LastDocked  savedDock `json:"last_docked,omitempty"`
+	SideRatio   float64   `json:"side_ratio,omitempty"` // the TUI's share of the width in side mode
+	AgentsView  bool      `json:"agents_view,omitempty"`
+	StarredView bool      `json:"starred_view,omitempty"`
 }
 
 func statePath() string {
@@ -56,9 +59,11 @@ func loadState(root string) savedState {
 }
 
 func (m *model) state() savedState {
-	s := savedState{All: m.all, Todo: m.todo, ByPerson: m.byPerson, ByPriority: m.byPriority, Detail: m.detail,
+	s := savedState{All: m.all, Todo: m.todo, ByPerson: m.byPerson, ByPriority: m.byPriority, NoDetail: m.noDetail, Layout: m.layout,
 		Filter: m.filter, Side: m.side, Docked: savedDock{m.docked.root, m.docked.id}, LastDocked: savedDock{m.lastDocked.root, m.lastDocked.id}}
 	s.SideRatio = m.sideRatio
+	s.AgentsView = m.agentsView
+	s.StarredView = m.starredView
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		s.Cursor = m.rows[m.cursor].key()
 	}
@@ -90,9 +95,11 @@ func (m *model) save() {
 
 // restore applies a saved state; the command docks the agent docked before.
 func (m *model) restore(s savedState, side bool) tea.Cmd {
-	m.all, m.todo, m.byPerson, m.byPriority, m.detail, m.filter = s.All, s.Todo, s.ByPerson, s.ByPriority, s.Detail, s.Filter
+	m.all, m.todo, m.byPerson, m.byPriority, m.noDetail, m.layout, m.filter = s.All, s.Todo, s.ByPerson, s.ByPriority, s.NoDetail, s.Layout, s.Filter
 	m.lastDocked = docked{s.LastDocked.Root, s.LastDocked.ID}
 	m.sideRatio = s.SideRatio
+	m.agentsView = s.AgentsView
+	m.starredView = s.StarredView
 	m.reload()
 	for i, r := range m.rows {
 		if s.Cursor != "" && r.selectable() && r.key() == s.Cursor {

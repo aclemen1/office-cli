@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aclemen1/dossier-cli/internal/actions"
+	"github.com/aclemen1/dossier-cli/internal/app"
 	"github.com/aclemen1/dossier-cli/internal/spec"
 )
 
@@ -69,6 +70,13 @@ func run(argv []string) int {
 	args, err := spec.Parse(act, rest[1:])
 	if err != nil {
 		return spec.Emit(act, format, nil, err)
+	}
+	// Everything runs in herdr, except what must never fail or helps to diagnose:
+	// meta actions, the MCP server and hooks (category internal), doctor.
+	if act.Category != "meta" && act.Category != "internal" && act.Name != "doctor" {
+		if err := app.HerdrReady(); err != nil {
+			return spec.Emit(act, format, nil, err)
+		}
 	}
 	result, err := act.Run(&spec.Context{Args: args, Store: storeFlag, Format: format, Stdin: os.Stdin})
 	if act.Name == "tui" && err == nil {

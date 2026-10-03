@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/aclemen1/dossier-cli/internal/app"
 	"github.com/aclemen1/dossier-cli/internal/dossier"
@@ -23,7 +23,7 @@ import (
 func RunPlaceholder(root, tui string) error {
 	roots := store.Discover(root)
 	p := &placeholder{roots: roots, stamps: stampsOf(roots), self: os.Getenv("HERDR_PANE_ID"), tui: tui}
-	_, err := tea.NewProgram(p, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err := tea.NewProgram(p).Run()
 	return err
 }
 
@@ -55,7 +55,10 @@ func clock() tea.Cmd {
 	return tea.Tick(250*time.Millisecond, func(t time.Time) tea.Msg { return clockMsg(t) })
 }
 
-func (p *placeholder) Init() tea.Cmd { p.now = time.Now(); return clock() }
+func (p *placeholder) Init() tea.Cmd {
+	p.now = time.Now()
+	return tea.Batch(clock(), tea.RequestBackgroundColor)
+}
 
 func (p *placeholder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -68,11 +71,13 @@ func (p *placeholder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, p.leave()
 		}
 		return p, clock()
-	case tea.MouseMsg:
-		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {
+	case tea.MouseReleaseMsg:
+		if msg.Button == tea.MouseLeft {
 			p.jump()
 		}
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		darkBackground = msg.IsDark()
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return p, tea.Quit
@@ -144,7 +149,9 @@ func (p *placeholder) refresh() {
 	}
 }
 
-func (p *placeholder) View() string {
+func (p *placeholder) View() tea.View { return screen(p.render()) }
+
+func (p *placeholder) render() string {
 	if p.width == 0 {
 		return ""
 	}
@@ -165,7 +172,7 @@ func (p *placeholder) View() string {
 			"",
 			sText.Render("enter")+sMuted.Render(" or click  jump to it")+sFaint.Render("   ·   ")+sText.Render("u")+sMuted.Render("  take my place back"))
 	} else {
-		body = append(body, sFaint.Render("A docked agent takes this pane's place;"), sFaint.Render("undocked, it goes back to its own tab."))
+		body = append(body, sFaint.Render("A docked agent takes this pane's place;"), sFaint.Render("it waits in the agent's tab meanwhile."))
 	}
 	if p.note != "" {
 		body = append(body, "", lipgloss.NewStyle().Foreground(cStopped).Render(p.note))
