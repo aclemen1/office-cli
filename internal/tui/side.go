@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/aclemen1/office-cli/internal/app"
 	"github.com/aclemen1/office-cli/internal/dossier"
@@ -219,6 +221,7 @@ func screen(s string) tea.View {
 	v := tea.NewView(s)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
 	return v
 }
 
@@ -276,4 +279,47 @@ func (m *model) dockedKey() string {
 		return ""
 	}
 	return m.docked.root + "|" + m.docked.id
+}
+
+// titleSeg names the TUI in the top bar: bright when it has the focus, dimmed
+// when another pane has it, with the docked agent named in side mode.
+func (m *model) titleSeg() string {
+	if paneFocused {
+		return sTitle.Render("office")
+	}
+	s := sFaint.Render("office")
+	if m.side && m.docked.id != "" {
+		s += sMuted.Render("  focus → ") + lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render(m.docked.id)
+	}
+	return s
+}
+
+// isDocked says whether the row's agent is the one shown at the right.
+func (m *model) isDocked(r row) bool {
+	return m.side && r.d != nil && r.office != nil && r.office.root == m.docked.root && r.d.ID == m.docked.id
+}
+
+// markDocked puts ▶ in the row's first column: its agent is at the right.
+func markDocked(line string, w int) string {
+	return lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("▶") + ansi.Cut(line, 1, w)
+}
+
+// labelCell shows a dossier's label; an alias keeps its id beside it, dimmed,
+// since agents name dossiers by their id.
+func labelCell(d *dossier.Dossier, w int) string {
+	s := sBold.Render(d.Label())
+	if d.Alias != "" {
+		s += " " + sMuted.Render(d.ID)
+	}
+	if pad := w - labelWidth(d); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return s
+}
+
+func labelWidth(d *dossier.Dossier) int {
+	if d.Alias != "" {
+		return lipgloss.Width(d.Label()) + 1 + lipgloss.Width(d.ID)
+	}
+	return lipgloss.Width(d.Label())
 }

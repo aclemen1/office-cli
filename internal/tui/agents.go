@@ -28,7 +28,7 @@ func (m *model) agentKey(k string, ag *app.AgentPane) (tea.Cmd, bool) {
 	case "+":
 		m.adopt(ag)
 		return nil, true
-	case "W", "u", "x", "D", "n", "m", "s", "o", "R", "N":
+	case "W", "u", "x", "D", "n", "m", "s", "o", "R", "N", "A", "T":
 		m.status, m.statusErr = "this agent has no dossier yet: + adopts it", true
 		return nil, true
 	}

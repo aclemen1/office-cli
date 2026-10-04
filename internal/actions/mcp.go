@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/aclemen1/office-cli/internal/spec"
 )
@@ -22,6 +23,7 @@ type tool struct {
 	dossierOnly               bool   // not served to the desk's session
 	deskOnly                  bool   // served only to the desk's session
 	deskDescription           string // replaces description on the desk
+	endsSelf                  bool   // ends the calling session when it names its own dossier
 }
 
 var tools = []tool{
@@ -43,6 +45,8 @@ var tools = []tool{
 	{name: "open", action: "open", self: []string{"in"}, hide: []string{"source", "thread", "url"},
 		description:     "Open a new dossier. By default this dossier includes it (an item of this meeting, a side affair); pass in = [] for a dossier on its own, or other dossiers that include it.",
 		deskDescription: "Open a new dossier, on its own by default; pass in with the dossiers that include it (a meeting, a lasting dossier)."},
+	{name: "retitle", action: "retitle", endsSelf: true, self: []string{"id"}, description: "Rename a dossier, when the user asks: title, tab, and directory (its session restarts on the same conversation)."},
+	{name: "alias", action: "alias", self: []string{"id"}, description: "Give a dossier an alias (a lasting dossier, a recurring meeting), replace it, or remove it with clear, when the user asks."},
 	{name: "link", action: "link", self: []string{"from"}, description: "Link a dossier to another: includes (part of it) or depends_on (waits for)."},
 	{name: "unlink", action: "unlink", self: []string{"from"}, description: "Remove links from a dossier to another."},
 	{name: "track", action: "track", self: []string{"id"},
@@ -50,7 +54,7 @@ var tools = []tool{
 	{name: "merge", action: "merge", self: []string{"from"}, description: "Merge a dossier into another one, after the user agreed."},
 	{name: "move", action: "move", description: "Move dossiers to another office (its sphere, e.g. pro): they get a number there, links among them stay. Only when the user asked."},
 	{name: "notify", action: "notify", self: []string{"from"}, description: "Tell another dossier something: a decision, new information, a request. Its session gets it as a prompt."},
-	{name: "start", action: "start", description: "Start a dossier's session when it is stopped, or restart it when it runs (same conversation, current binary). Name the dossier, or desk."},
+	{name: "start", action: "start", endsSelf: true, description: "Start a dossier's session when it is stopped, or restart it when it runs (same conversation, current binary). Name the dossier, or desk."},
 	{name: "skills", action: "skills", deskOnly: true, description: "List the skills every session of the office gets, or add or remove one when the user asked. Sessions see the change at their next start."},
 	{name: "escalations", action: "escalations", deskOnly: true, description: "List the escalations not resolved yet: pending (not yet shown to you) and delivered."},
 	{name: "resolve", action: "resolve", deskOnly: true, description: "Resolve an escalation once the user decided: the decision is recorded and the dossier it came from is told."},
@@ -182,6 +186,9 @@ func (t tool) call(self string, desk bool, in map[string]any) (any, error) {
 	}
 	if _, err := spec.Parse(a, argv); err != nil {
 		return nil, err
+	}
+	if t.endsSelf && !desk && strings.EqualFold(fmt.Sprint(args["id"]), self) {
+		return runDetached(t.action, argv)
 	}
 	return runAction(t.action, argv)
 }
@@ -345,4 +352,21 @@ func toolNames() string {
 		n = append(n, t.name)
 	}
 	return strings.Join(n, ", ")
+}
+
+// runDetached starts the action in its own session and returns at once: it
+// closes the calling session, which would otherwise take the action down with it.
+var runDetached = func(action string, argv []string) (any, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(exe, append([]string{action}, argv...)...)
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	_ = cmd.Process.Release()
+	return map[string]any{"detached": true, "note": "This session closes now and resumes on the same conversation in a new tab."}, nil
 }

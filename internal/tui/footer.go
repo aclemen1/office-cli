@@ -64,7 +64,7 @@ func (m *model) footer() []keyGroup {
 		} else {
 			item = append(item, [2]string{"s", "star"})
 		}
-		item = append(item, [2]string{"c", "new"}, [2]string{"#", "delete"})
+		item = append(item, [2]string{"T", "title"}, [2]string{"A", "alias"}, [2]string{"c", "new"}, [2]string{"#", "delete"})
 	default:
 		item = [][2]string{{"c", "new dossier"}}
 	}
@@ -81,7 +81,7 @@ func (m *model) footer() []keyGroup {
 	if m.lastDocked.id != "" {
 		nav = append(nav, [2]string{"'", "back"})
 	}
-	nav = append(nav, [2]string{"/", "filter"})
+	nav = append(nav, [2]string{": ;", "jump"}, [2]string{"/", "filter"})
 	if len(m.links) > 0 {
 		nav = append(nav, [2]string{"f", "open a link"})
 	}

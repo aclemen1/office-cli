@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -171,13 +173,23 @@ func measureRatio(tui string) float64 {
 
 // SendKeys types keys into the running TUI, as if the user had: herdr key
 // bindings use it to drive the TUI while the focus is elsewhere.
-func SendKeys(keys []string) error {
+// SendKeys types keys into the running TUI. With focus, the TUI's pane takes the
+// focus first, and the pane that had it is noted for the TUI to give it back.
+func SendKeys(keys []string, focus bool) error {
 	for _, s := range readStates() {
 		if s.Pane == "" {
 			continue
 		}
 		if _, err := app.PaneTab(s.Pane); err != nil {
 			continue
+		}
+		if focus {
+			if prev := app.FocusedPane(); prev != "" && prev != s.Pane {
+				_ = os.WriteFile(returnPath(), []byte(prev), 0o644)
+			}
+			if err := app.FocusPane(s.Pane); err != nil {
+				return err
+			}
 		}
 		for _, k := range keys {
 			if out, err := exec.Command("herdr", "pane", "send-keys", s.Pane, k).CombinedOutput(); err != nil {
@@ -187,4 +199,23 @@ func SendKeys(keys []string) error {
 		return nil
 	}
 	return spec.UserError("no dossier TUI is running in a herdr pane")
+}
+
+// returnPath holds the pane that had the focus before `tui-key --focus`.
+func returnPath() string { return filepath.Join(filepath.Dir(statePath()), "tui-return") }
+
+// takeReturn reads and clears the pane to give the focus back to; a note older
+// than a few seconds belongs to an earlier key.
+func takeReturn() string {
+	p := returnPath()
+	fi, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	b, _ := os.ReadFile(p)
+	_ = os.Remove(p)
+	if time.Since(fi.ModTime()) > 10*time.Second {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }

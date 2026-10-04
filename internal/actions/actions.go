@@ -688,10 +688,11 @@ func init() {
 	spec.Register(&spec.Action{
 		Category: "office", Name: "tui-key", Summary: "Type keys into the running TUI, e.g. from a herdr key binding while the focus is in an agent.",
 		Discussion: "The TUI records its herdr pane while it runs. Each argument is one key as herdr send-keys names it: ], [, ', h, g p (two keys).",
-		Params:     []spec.Param{{Name: "keys", Kind: spec.StringList, Positional: true, Required: true, Help: "Keys, in order."}},
-		Examples:   []string{"office tui-key ]", "office tui-key g p"},
+		Params: []spec.Param{{Name: "keys", Kind: spec.StringList, Positional: true, Required: true, Help: "Keys, in order."},
+			{Name: "focus", Kind: spec.Bool, Help: "Give the TUI the focus first; esc in the jump picker gives it back."}},
+		Examples: []string{"office tui-key ]", "office tui-key g p"},
 		Run: func(ctx *spec.Context) (any, error) {
-			return map[string]any{"sent": ctx.List("keys")}, tui.SendKeys(ctx.List("keys"))
+			return map[string]any{"sent": ctx.List("keys")}, tui.SendKeys(ctx.List("keys"), ctx.Bool("focus"))
 		},
 	})
 

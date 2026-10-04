@@ -64,12 +64,13 @@ type model struct {
 	listW           int
 	listH           int
 	detailW         int
-	detailOverflows bool // the detail panel has more lines than room, as last drawn
-	legend          bool // the detail panel shows what marks and colours mean
-	agentsView      bool // g n: only the agents that no dossier holds
-	starredView     bool // g s: only the starred dossiers
-	gPending        bool // g was typed: the next key goes somewhere
-	side            bool // enter docks the agent at the TUI's right
+	detailOverflows bool  // the detail panel has more lines than room, as last drawn
+	legend          bool  // the detail panel shows what marks and colours mean
+	agentsView      bool  // g n: only the agents that no dossier holds
+	starredView     bool  // g s: only the starred dossiers
+	jump            *jump // the « : » picker, nil when closed
+	gPending        bool  // g was typed: the next key goes somewhere
+	side            bool  // enter docks the agent at the TUI's right
 	placeholder     string
 	docked          docked
 	lastDocked      docked  // the one before, for '
@@ -150,7 +151,7 @@ func (m *model) reload() {
 	m.labelW = 7
 	for _, r := range m.rows {
 		if r.d != nil {
-			m.labelW = max(m.labelW, lipgloss.Width(r.d.Label()))
+			m.labelW = max(m.labelW, labelWidth(r.d))
 		}
 	}
 	m.waitW = 0
@@ -289,18 +290,33 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.dockDone()
 		}
 	case tea.MouseMsg:
-		if m.ask == nil && !m.typing {
+		if m.ask == nil && !m.typing && m.jump == nil {
 			return m, m.mouse(msg)
 		}
 	case tea.BackgroundColorMsg:
 		darkBackground = msg.IsDark()
+	case tea.FocusMsg:
+		paneFocused = true
+	case tea.BlurMsg:
+		paneFocused = false
+	case tea.PasteMsg:
+		if m.ask != nil {
+			_, cmd := m.ask.update(msg)
+			return m, cmd
+		}
+		if m.jump != nil {
+			return m, m.jumpKey(msg)
+		}
 	case tea.KeyPressMsg:
 		if m.ask != nil {
-			finished, cmd := m.ask.key(msg)
+			finished, cmd := m.ask.update(msg)
 			if finished {
 				m.ask = nil
 			}
 			return m, cmd
+		}
+		if m.jump != nil {
+			return m, m.jumpKey(msg)
 		}
 		if m.typing {
 			return m, m.typeFilter(msg)
@@ -466,6 +482,8 @@ func (m *model) key(k string) tea.Cmd {
 		m.reload()
 	case "/":
 		m.typing = true
+	case ":", ";":
+		m.startJump()
 	case "esc":
 		m.filter, m.status = "", ""
 		m.reload()
@@ -528,6 +546,36 @@ func (m *model) key(k string) tea.Cmd {
 		}
 		m.status, m.statusErr = r.d.Label()+": restarting its session…", false
 		return run(r.office.root, r.d.ID, "restart")
+	case "A":
+		if r == nil || r.desk {
+			break
+		}
+		d, root := r.d, r.office.root
+		m.ask = &ask{title: "Alias of " + d.ID + " · " + truncate(d.Title, 40), fields: []askField{
+			{label: "alias", value: d.Alias, hint: "letters, digits, -; empty removes it"},
+		}, done: func(v []string) tea.Cmd {
+			if v[0] == d.Alias {
+				return nil
+			}
+			if v[0] == "" {
+				return run(root, d.ID, "alias", "--clear")
+			}
+			return run(root, d.ID, "alias", v[0])
+		}}
+	case "T":
+		if r == nil || r.desk {
+			break
+		}
+		d, root := r.d, r.office.root
+		m.ask = &ask{title: "Title of " + d.Label(), fields: []askField{
+			{label: "title", value: d.Title, hint: "the directory follows; a running session restarts"},
+		}, done: func(v []string) tea.Cmd {
+			if v[0] == "" || v[0] == d.Title {
+				return nil
+			}
+			m.status, m.statusErr = d.Label()+": renaming…", false
+			return run(root, d.ID, "retitle", "--title", v[0])
+		}}
 	}
 	return nil
 }
@@ -692,15 +740,15 @@ func (m *model) topBar(width int) []string {
 	if m.byPriority {
 		order = "by priority"
 	}
-	segs := []string{sTitle.Render("office"), sMuted.Render(scope), sMuted.Render(order)}
+	segs := []string{m.titleSeg(), sMuted.Render(scope), sMuted.Render(order)}
 	if m.byPerson {
-		segs = []string{sTitle.Render("office"), sMuted.Render("waiting, by person")}
+		segs = []string{m.titleSeg(), sMuted.Render("waiting, by person")}
 	}
 	if m.agentsView {
-		segs = []string{sTitle.Render("office"), sMuted.Render("agents without dossier")}
+		segs = []string{m.titleSeg(), sMuted.Render("agents without dossier")}
 	}
 	if m.starredView {
-		segs = []string{sTitle.Render("office"), sMuted.Render("starred")}
+		segs = []string{m.titleSeg(), sMuted.Render("starred")}
 	}
 	if m.side {
 		segs = append(segs, sMuted.Render("side"))
@@ -776,6 +824,9 @@ func (m *model) bottomBar(width int) []string {
 }
 
 func (m *model) listView(w, h int) string {
+	if m.jump != nil {
+		return m.jumpView(w, h)
+	}
 	if m.cursor < m.offset {
 		m.offset = m.cursor
 	}
@@ -791,6 +842,8 @@ func (m *model) listView(w, h int) string {
 		line := m.rowView(m.rows[i], false, w-1)
 		if i == m.cursor {
 			line = selectLine(line, w-1)
+		} else if m.isDocked(m.rows[i]) {
+			line = markDocked(line, w-1)
 		}
 		lines = append(lines, line)
 	}
@@ -848,7 +901,7 @@ func (m *model) rowView(r row, sel bool, w int) string {
 	if parked(d) {
 		state = sFaint.Render(fmt.Sprintf("%-9s", "no action"))
 	}
-	label := sBold.Render(fmt.Sprintf("%-*s", m.labelW, d.Label()))
+	label := labelCell(d, m.labelW)
 	dot := " "
 	if r.unread {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")

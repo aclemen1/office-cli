@@ -152,6 +152,8 @@ func legendView(w int, add func(...string)) {
 			{"W  u", "wait on someone; resume, or reopen a closed one"},
 			{"e  (x)", "close"}, {"n", "no action for now, or needs action again"},
 			{"s", "star or unstar: first in its office, always at hand"}, {"#  (D)", "delete"},
+			{"T", "rename: title, tab and directory; a running session restarts"},
+			{"A", "alias: set, change, or empty to remove"},
 		}},
 		{"Agent", [][2]string{
 			{"o  enter", "open the agent's pane; without a session, start it with its prompt"},
@@ -170,6 +172,7 @@ func legendView(w int, add func(...string)) {
 			{"g d  (b)", "the desk"}, {"g p", "the placeholder"},
 			{"g i  g t  (t)", "active dossiers, to do"}, {"g w  (w)", "waiting, by person"}, {"g a  (a)", "all states"},
 			{"g s", "starred dossiers"}, {"g n", "agents running without a dossier"},
+			{":  ;", "jump to a dossier: fuzzy on alias, then title, then content; the view stays; in side mode, its agent comes to the right"},
 			{"/  esc", "filter, clear it"}, {"J K", "scroll the detail panel"},
 			{"f", "the detail panel's links: j k choose, enter opens (a dossier, a file, an address); a click opens too"},
 		}},

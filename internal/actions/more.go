@@ -403,6 +403,21 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
+		Category: "dossier", Name: "retitle", Summary: "Rename a dossier: its title, its tab and its directory, which follows the title.",
+		Params: []spec.Param{
+			idParam("Dossier id."),
+			{Name: "title", Kind: spec.String, Required: true, Help: "New title."},
+		},
+		Effects: []string{"Writes the title in dossier.md, and in its manual source when that one carried the old title.",
+			"Renames the directory to <number>-<slug of the title>; a running session closes, its conversation follows, and it resumes.",
+			"Rewrites the links block of the dossiers that point to it."},
+		Examples: []string{`office retitle P-0019 --title "Développement d'office"`},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) { return a.Retitle(ctx.Str("id"), ctx.Str("title")) })
+		},
+	})
+
+	spec.Register(&spec.Action{
 		Category: "internal", Name: "closetab", Summary: "Wait, then close a dossier's tab; the session stays resumable.",
 		Params: []spec.Param{
 			idParam("Dossier id."),

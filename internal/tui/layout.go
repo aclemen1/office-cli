@@ -103,13 +103,17 @@ var sgrReset = regexp.MustCompile(`\x1b\[0?m`)
 // accent colour, and keeps every colour of the row: the agent's mark keeps
 // meaning what it means. The background is set again after each reset.
 func selectLine(line string, w int) string {
-	probe := lipgloss.NewStyle().Background(cSel).Render("|")
+	sel, mark := cSel, cAccent
+	if !paneFocused {
+		sel, mark = cSelBg, cMuted
+	}
+	probe := lipgloss.NewStyle().Background(sel).Render("|")
 	bg, _, _ := strings.Cut(probe, "|")
 	rest := ansi.Cut(line, 1, w)
 	body := bg + sgrReset.ReplaceAllStringFunc(rest, func(r string) string { return r + bg })
 	if pad := w - 1 - lipgloss.Width(rest); pad > 0 {
 		body += strings.Repeat(" ", pad)
 	}
-	bar := lipgloss.NewStyle().Foreground(cAccent).Background(cSel).Bold(true).Render("▌")
+	bar := lipgloss.NewStyle().Foreground(mark).Background(sel).Bold(true).Render("▌")
 	return bar + body + "\x1b[m"
 }

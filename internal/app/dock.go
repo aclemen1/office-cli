@@ -272,3 +272,62 @@ func focusedIn(pane string) string {
 	_ = json.Unmarshal(out, &r)
 	return r.Result.Layout.Focused
 }
+
+type paneListed struct {
+	PaneID  string `json:"pane_id"`
+	TabID   string `json:"tab_id"`
+	Focused bool   `json:"focused"`
+}
+
+func listPanes() []paneListed {
+	out, err := herdrCall("pane", "list")
+	if err != nil {
+		return nil
+	}
+	var r struct {
+		Result struct {
+			Panes []paneListed `json:"panes"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(out, &r)
+	return r.Result.Panes
+}
+
+// FocusedPane is the herdr pane that has the focus now.
+func FocusedPane() string {
+	for _, p := range listPanes() {
+		if p.Focused {
+			return p.PaneID
+		}
+	}
+	return ""
+}
+
+// FocusPane gives the focus to a pane, agent or not. herdr focuses agents by
+// id, other panes only from a neighbour: each pane of the tab is tried.
+func FocusPane(id string) error {
+	if _, err := herdrCall("agent", "focus", id); err == nil {
+		return nil
+	}
+	tab, err := PaneTab(id)
+	if err != nil {
+		return err
+	}
+	_, _ = herdrCall("tab", "focus", tab)
+	focused := func() bool { return FocusedPane() == id }
+	if focused() {
+		return nil
+	}
+	for _, p := range listPanes() {
+		if p.TabID != tab || p.PaneID == id {
+			continue
+		}
+		for _, dir := range []string{"left", "right", "up", "down"} {
+			_, _ = herdrCall("pane", "focus", "--pane", p.PaneID, "--direction", dir)
+			if focused() {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("herdr: could not focus pane %s", id)
+}

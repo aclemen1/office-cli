@@ -3,8 +3,10 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 
 	"github.com/aclemen1/office-cli/internal/dossier"
 )
@@ -19,46 +21,77 @@ type ask struct {
 }
 
 type askField struct {
-	label, value, hint string
+	label, value, hint string // value: the starting text
+	in                 *textinput.Model
 }
 
-func (a *ask) key(k tea.KeyPressMsg) (finished bool, cmd tea.Cmd) {
-	f := &a.fields[a.i]
-	switch k.Keystroke() {
-	case "esc":
-		return true, nil
-	case "enter":
-		if a.i < len(a.fields)-1 {
-			a.i++
-			return false, nil
-		}
-		values := make([]string, len(a.fields))
-		for i, f := range a.fields {
-			values[i] = strings.TrimSpace(f.value)
-		}
-		return true, a.done(values)
-	case "backspace":
-		if r := []rune(f.value); len(r) > 0 {
-			f.value = string(r[:len(r)-1])
-		}
-	case "ctrl+u":
-		f.value = ""
-	case "ctrl+c":
-		return true, tea.Quit
-	default:
-		f.value += k.Text
+// input gives the field its editor on first use, holding the starting text.
+func (f *askField) input() *textinput.Model {
+	if f.in == nil {
+		in := newInput(f.value)
+		f.in = &in
 	}
-	return false, nil
+	return f.in
+}
+
+// newInput is a one-line editor: arrows, word moves, ctrl+a / ctrl+e, ctrl+w,
+// ctrl+k, ctrl+u, and paste (cmd+v or ctrl+v).
+func newInput(value string) textinput.Model {
+	in := textinput.New()
+	in.Prompt = ""
+	st := textinput.DefaultStyles(darkBackground)
+	st.Focused.Text = sBold
+	st.Cursor.Blink = false
+	st.Cursor.Color = cAccent
+	in.SetStyles(st)
+	in.SetValue(value)
+	in.CursorEnd()
+	in.Focus()
+	return in
+}
+
+// update feeds a key or a paste to the current field: enter goes on, esc
+// cancels, ctrl+y copies the field to the clipboard.
+func (a *ask) update(msg tea.Msg) (finished bool, cmd tea.Cmd) {
+	in := a.fields[a.i].input()
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		switch k.Keystroke() {
+		case "esc":
+			return true, nil
+		case "ctrl+c":
+			return true, tea.Quit
+		case "ctrl+y":
+			v := in.Value()
+			return false, func() tea.Msg { _ = clipboard.WriteAll(v); return nil }
+		case "enter":
+			if a.i < len(a.fields)-1 {
+				a.i++
+				return false, nil
+			}
+			values := make([]string, len(a.fields))
+			for i := range a.fields {
+				values[i] = strings.TrimSpace(a.fields[i].input().Value())
+			}
+			return true, a.done(values)
+		}
+	}
+	*in, cmd = in.Update(msg)
+	return false, cmd
 }
 
 func (a *ask) view() string {
-	f := a.fields[a.i]
+	f := &a.fields[a.i]
 	head := lipgloss.NewStyle().Bold(true).Foreground(cAccent).Render(a.title)
-	line := head + sMuted.Render("  ·  "+f.label+"  ") + sBold.Render(f.value+"▏")
+	line := head + sMuted.Render("  ·  "+f.label+"  ") + f.input().View()
 	if f.hint != "" {
 		line += sFaint.Render("   " + f.hint)
 	}
-	return line + "\n" + sMuted.Render("enter ") + sFaint.Render("confirm") + sMuted.Render("  ·  esc ") + sFaint.Render("cancel") + sMuted.Render("  ·  ctrl+u ") + sFaint.Render("clear")
+	keys := [][2]string{{"enter", "confirm"}, {"esc", "cancel"}, {"← → ctrl+a ctrl+e", "move"}, {"ctrl+w ctrl+u", "delete"}, {"cmd+v", "paste"}, {"ctrl+y", "copy"}}
+	var segs []string
+	for _, k := range keys {
+		segs = append(segs, sMuted.Render(k[0]+" ")+sFaint.Render(k[1]))
+	}
+	return line + "\n" + strings.Join(segs, sMuted.Render("  ·  "))
 }
 
 // stateKey opens the form or runs the command of a state key: W wait, u

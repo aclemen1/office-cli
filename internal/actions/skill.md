@@ -41,6 +41,8 @@ office's prefix: P-0042 and U-0042 are in different offices.
 | Move dossiers to another office, when the user asks | `office move <id>... --to <sphere>` |
 | Skills every session of the office gets | `office skills [add <path> \| remove <name>]` |
 | Show its session to the user | `office attach <id>` |
+| Rename a dossier, when the user asks (title, tab, directory) | `office retitle <id> --title "…"` |
+| Set, change or remove an alias | `office alias <id> <ALIAS>` or `--clear` |
 | Start a stopped session, or restart a running one | `office start <id>` |
 | Escalations the desk has not resolved | `office escalations --format text` |
 | Record the decision on an escalation | `office resolve <file or id> --decision "…"` |

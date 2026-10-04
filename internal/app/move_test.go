@@ -99,3 +99,27 @@ func TestIngestLeavesTheOfficeFreeWhilePolling(t *testing.T) {
 	other.Unlock()
 	<-done
 }
+
+func TestRetitleRenamesTheDirectoryAndTheLinksToIt(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Développement de dossier", NoStart: true})
+	f.a.Open(OpenParams{Title: "Séance", NoStart: true})
+	f.a.Link("2", "1", dossier.RelIncludes)
+	d := mustGet(t, f, "1")
+	d.Sources = append(d.Sources, dossier.Source{ID: "manual:D-0001", Title: "Développement de dossier"})
+	d.Save()
+	res, err := f.a.Retitle("D-0001", "Développement d'office")
+	if err != nil || filepath.Base(res.Dir) != "0001-developpement-d-office" {
+		t.Fatalf("retitle %+v %v", res, err)
+	}
+	d = mustGet(t, f, "1")
+	if d.Title != "Développement d'office" || d.Sources[len(d.Sources)-1].Title != "Développement d'office" || d.Dir != res.Dir {
+		t.Fatalf("dossier %+v", d)
+	}
+	if b, _ := os.ReadFile(mustGet(t, f, "2").Path("dossier.md")); !strings.Contains(string(b), "../0001-developpement-d-office/dossier.md") {
+		t.Fatalf("link block not rewritten:\n%s", b)
+	}
+	if _, err := f.a.Retitle("D-0001", " "); err == nil {
+		t.Fatal("an empty title was accepted")
+	}
+}
