@@ -205,6 +205,31 @@ func init() {
 		},
 	})
 	spec.Register(&spec.Action{
+		Category: "office", Name: "skills", Summary: "List, add or remove the skills every session of the office gets ([agent] skills).",
+		Params: []spec.Param{
+			{Name: "verb", Kind: spec.String, Positional: true, Default: "list", Enum: []string{"list", "add", "remove"}, Help: "list, add or remove"},
+			{Name: "skill", Kind: spec.String, Positional: true, Help: "add: the skill's directory (holding SKILL.md); remove: its name."},
+		},
+		Effects: []string{"add and remove rewrite [agent] skills in .office/config.toml (other lines untouched), then sync <office>/.claude/skills/ as `office setup` does.",
+			"Sessions see the change at their next start."},
+		Examples: []string{"office skills", "office skills add ~/code/aclemen1/skills-library/compta", "office skills remove compta"},
+		Run: func(ctx *spec.Context) (any, error) {
+			verb, skill := ctx.Str("verb"), ctx.Str("skill")
+			if verb != "list" && skill == "" {
+				return nil, spec.UserError("skills %s needs a skill, e.g. `office skills %s compta`", verb, verb)
+			}
+			return withApp(ctx, verb != "list", func(a *app.App) (any, error) {
+				switch verb {
+				case "add":
+					return a.AddSkill(skill)
+				case "remove":
+					return a.RemoveSkill(skill)
+				}
+				return map[string]any{"skills": a.S.Config.Agent.Skills, "skill_commands": a.S.Config.Agent.SkillCommands}, nil
+			})
+		},
+	})
+	spec.Register(&spec.Action{
 		Category: "office", Name: "doctor", Summary: "Check the ACP server, herdr, every connector and pending transitions.",
 		Examples: []string{"office doctor"},
 		Run: func(ctx *spec.Context) (any, error) {

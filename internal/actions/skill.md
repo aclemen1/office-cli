@@ -39,6 +39,7 @@ office's prefix: P-0042 and U-0042 are in different offices.
 | Nothing to do for now | `office park <id> --note "…"` |
 | Keep a dossier at hand, when the user asks | `office star <id>` (`unstar` removes it) |
 | Move dossiers to another office, when the user asks | `office move <id>... --to <sphere>` |
+| Skills every session of the office gets | `office skills [add <path> \| remove <name>]` |
 | Show its session to the user | `office attach <id>` |
 | Start a stopped session, or restart a running one | `office start <id>` |
 | Escalations the desk has not resolved | `office escalations --format text` |

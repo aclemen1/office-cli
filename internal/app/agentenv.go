@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // SkillsReport says what the office's skills directory holds after a sync.
@@ -37,6 +38,9 @@ func (a *App) SyncSkills() SkillsReport {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		rep.Errors = append(rep.Errors, err.Error())
 		return rep
+	}
+	if old, err := os.ReadFile(filepath.Join(dir, "README.md")); err != nil || string(old) != skillsReadme {
+		_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte(skillsReadme), 0o644)
 	}
 	want := map[string]bool{}
 	for _, src := range cfg.Skills {
@@ -197,4 +201,57 @@ func (a *App) Guard(command string) map[string]any {
 		}
 	}
 	return nil
+}
+
+const skillsReadme = `# Generated directory
+
+office rebuilds this directory from [agent] skills and skill_commands in
+.office/config.toml, before every session start. A link made here by hand is
+removed. Add a skill with ` + "`office skills add <path>`" + `, remove one with
+` + "`office skills remove <name>`" + `.
+`
+
+// AddSkill lists a skill directory in [agent] skills and links it.
+func (a *App) AddSkill(path string) (SkillsReport, error) {
+	abs, err := filepath.Abs(office.ExpandHome(path))
+	if err != nil {
+		return SkillsReport{}, err
+	}
+	if _, err := os.Stat(filepath.Join(abs, "SKILL.md")); err != nil {
+		return SkillsReport{}, spec.UserError("%s has no SKILL.md: a skill is a directory holding one", abs)
+	}
+	name := filepath.Base(abs)
+	if _, ok := a.S.Config.Agent.SkillCommands[name]; ok {
+		return SkillsReport{}, spec.UserError("skill_commands already provides a skill named %s", name)
+	}
+	list := a.S.Config.Agent.Skills
+	for _, x := range list {
+		if filepath.Base(office.ExpandHome(x)) == name {
+			return SkillsReport{}, spec.UserError("[agent] skills already has a skill named %s: %s", name, x)
+		}
+	}
+	if err := a.S.SetSkills(append(append([]string{}, list...), office.TildePath(abs))); err != nil {
+		return SkillsReport{}, err
+	}
+	return a.SyncSkills(), nil
+}
+
+// RemoveSkill drops a skill, named by its directory name, from [agent] skills.
+func (a *App) RemoveSkill(name string) (SkillsReport, error) {
+	var kept []string
+	found := false
+	for _, x := range a.S.Config.Agent.Skills {
+		if filepath.Base(office.ExpandHome(x)) == name {
+			found = true
+			continue
+		}
+		kept = append(kept, x)
+	}
+	if !found {
+		return SkillsReport{}, spec.UserError("no skill named %s in [agent] skills", name)
+	}
+	if err := a.S.SetSkills(kept); err != nil {
+		return SkillsReport{}, err
+	}
+	return a.SyncSkills(), nil
 }

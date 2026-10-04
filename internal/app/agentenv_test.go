@@ -108,3 +108,40 @@ func TestSessionGetsMemoryDirectories(t *testing.T) {
 		t.Fatalf("args %q env %v", args, env)
 	}
 }
+
+func TestAddAndRemoveSkillKeepTheConfigComments(t *testing.T) {
+	f := newFixture(t)
+	lib := t.TempDir()
+	for _, n := range []string{"qmd", "compta"} {
+		os.MkdirAll(filepath.Join(lib, n), 0o755)
+		os.WriteFile(filepath.Join(lib, n, "SKILL.md"), []byte("---\nname: "+n+"\n---\n"), 0o644)
+	}
+	p := f.a.S.Meta("config.toml")
+	b, _ := os.ReadFile(p)
+	os.WriteFile(p, []byte(strings.Replace(string(b), "[agent]", "[agent]\n# skills partagés\nskills = [\n  \""+filepath.Join(lib, "qmd")+"\",\n]", 1)), 0o644)
+	f.a.S.Config.Agent.Skills = []string{filepath.Join(lib, "qmd")}
+
+	rep, err := f.a.AddSkill(filepath.Join(lib, "compta"))
+	if err != nil || len(rep.Linked) != 2 {
+		t.Fatalf("add %+v %v", rep, err)
+	}
+	b, _ = os.ReadFile(p)
+	if !strings.Contains(string(b), "# skills partagés") || !strings.Contains(string(b), "compta") || len(f.a.S.Config.Agent.Skills) != 2 {
+		t.Fatalf("config after add:\n%s", b)
+	}
+	if _, err := f.a.AddSkill(filepath.Join(lib, "compta")); err == nil {
+		t.Fatal("a skill was added twice")
+	}
+	if _, err := f.a.AddSkill(lib); err == nil {
+		t.Fatal("a directory without SKILL.md was added")
+	}
+	if r, _ := os.ReadFile(filepath.Join(rep.Dir, "README.md")); !strings.Contains(string(r), "Generated directory") {
+		t.Fatalf("readme %q", r)
+	}
+	if rep, err = f.a.RemoveSkill("qmd"); err != nil || len(rep.Removed) != 1 {
+		t.Fatalf("remove %+v %v", rep, err)
+	}
+	if _, err := f.a.RemoveSkill("qmd"); err == nil {
+		t.Fatal("removed a skill that is not listed")
+	}
+}

@@ -167,7 +167,7 @@ func init() {
 
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "start", Summary: "Start a dossier's session, or restart it when it runs: same conversation, current binary.",
-		Params:   []spec.Param{idParam("Dossier id, or desk.")},
+		Params: []spec.Param{idParam("Dossier id, or desk.")},
 		Effects: []string{"A stopped session resumes in a new tab; a dossier without session starts one with its open prompt.",
 			"A running session is restarted, as with `office restart`."},
 		Examples: []string{"office start P-0019", "office start desk"},
