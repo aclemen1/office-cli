@@ -497,7 +497,7 @@ def transition(inp):
         for tasklist, task in thread_tasks(lists, {m for m, _ in msgs}, completed=True):
             if task.get("status") == "completed":
                 gws("tasks", "tasks", "patch", params={"tasklist": tasklist, "task": task["id"]},
-                    body={"status": "needsAction", "completed": None})
+                    body={"status": "needsAction"})
                 done.append("task unchecked")
         done.append("yellow star")
     return {"ok": True, "detail": ", ".join(done) or "nothing to do"}

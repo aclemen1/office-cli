@@ -46,6 +46,7 @@ type model struct {
 	byPerson        bool
 	byPriority      bool
 	waitW           int // width of the waiting column, 0 when nothing waits
+	labelW          int // width of the id/alias column
 	errs            []string
 	cursor          int
 	offset          int
@@ -144,6 +145,12 @@ func (m *model) reload() {
 	for i := range m.rows {
 		if r := m.rows[i]; m.side && r.d != nil && r.office.root == m.docked.root && r.d.ID == m.docked.id {
 			m.rows[i].unread = false
+		}
+	}
+	m.labelW = 7
+	for _, r := range m.rows {
+		if r.d != nil {
+			m.labelW = max(m.labelW, lipgloss.Width(r.d.Label()))
 		}
 	}
 	m.waitW = 0
@@ -838,7 +845,7 @@ func (m *model) rowView(r row, sel bool, w int) string {
 	if parked(d) {
 		state = sFaint.Render(fmt.Sprintf("%-9s", "no action"))
 	}
-	label := sBold.Render(fmt.Sprintf("%-7s", d.Label()))
+	label := sBold.Render(fmt.Sprintf("%-*s", m.labelW, d.Label()))
 	dot := " "
 	if r.unread {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
