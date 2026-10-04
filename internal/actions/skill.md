@@ -40,6 +40,9 @@ office's prefix: P-0042 and U-0042 are in different offices.
 | Keep a dossier at hand, when the user asks | `office star <id>` (`unstar` removes it) |
 | Move dossiers to another office, when the user asks | `office move <id>... --to <sphere>` |
 | Show its session to the user | `office attach <id>` |
+| Start a stopped session, or restart a running one | `office start <id>` |
+| Escalations the desk has not resolved | `office escalations --format text` |
+| Record the decision on an escalation | `office resolve <file or id> --decision "…"` |
 | Open the office's desk (a lasting session, no state) | `office desk` |
 | Turn this agent's conversation into a new dossier (run inside its herdr pane) | `office adopt --title "…" --office <root>` |
 

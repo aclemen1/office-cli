@@ -120,7 +120,7 @@ func (a *App) Show(d *dossier.Dossier) ShowResult {
 		r.Log = string(b)
 	}
 	if IsDesk(d) {
-		r.Escalations = Escalations(d)
+		r.Escalations = OpenEscalations(d)
 	}
 	return r
 }

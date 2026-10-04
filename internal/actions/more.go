@@ -91,18 +91,8 @@ func init() {
 				if app.IsDesk(to) {
 					return a.Escalate(from, ctx.Str("text"))
 				}
-				text := fmt.Sprintf("From dossier %s (%s): %s", from.ID, from.Title, ctx.Str("text"))
-				_ = to.Log("from %s: %s", from.ID, ctx.Str("text"))
-				if app.IsDesk(from) {
-					_ = from.Log("notified %s · %s", to.ID, ctx.Str("text"))
-				}
-				if _, err := a.Wake(to, "notified by "+from.ID); err != nil {
-					return nil, err
-				}
-				if to.Run.Session == "" {
-					return map[string]any{"to": to.ID, "prompted": false}, to.Save()
-				}
-				return map[string]any{"to": to.ID, "prompted": true}, a.Prompt(to, text)
+				prompted, err := a.Tell(from, to, ctx.Str("text"))
+				return map[string]any{"to": to.ID, "prompted": prompted}, err
 			})
 		},
 	})
@@ -171,6 +161,64 @@ func init() {
 					return nil, err
 				}
 				return map[string]any{"id": d.ID, "session": d.Run.Session, "tab_id": d.Run.TabID}, nil
+			})
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "dossier", Name: "start", Summary: "Start a dossier's session, or restart it when it runs: same conversation, current binary.",
+		Params:   []spec.Param{idParam("Dossier id, or desk.")},
+		Effects: []string{"A stopped session resumes in a new tab; a dossier without session starts one with its open prompt.",
+			"A running session is restarted, as with `office restart`."},
+		Examples: []string{"office start P-0019", "office start desk"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				d, err := a.LoadAny(ctx.Str("id"))
+				if err != nil {
+					return nil, err
+				}
+				how, err := a.Start(d)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": d.ID, "done": how, "session": d.Run.Session, "tab_id": d.Run.TabID}, nil
+			})
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "graph", Name: "escalations", Summary: "List the escalations the desk has not resolved yet.",
+		Params:   []spec.Param{{Name: "all", Kind: spec.Bool, Help: "Include resolved escalations."}},
+		Effects:  []string{"Read-only."},
+		Examples: []string{"office escalations --format text"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, false, func(a *app.App) (any, error) {
+				d := a.Desk()
+				out := app.OpenEscalations(d)
+				if ctx.Bool("all") {
+					out = append(out, app.ResolvedEscalations(d)...)
+				}
+				return out, nil
+			})
+		},
+		Text: func(w io.Writer, r any) {
+			for _, e := range r.([]app.Escalation) {
+				fmt.Fprintf(w, "%-9s %s · %s\n", e.Status, e.File, e.Text)
+			}
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "graph", Name: "resolve", Summary: "Close an escalation: record the desk's decision and tell the dossier it came from.",
+		Params: []spec.Param{
+			{Name: "escalation", Kind: spec.String, Positional: true, Required: true, Help: "Escalation file (from `office escalations`), or the dossier it came from when it has only one open."},
+			{Name: "decision", Kind: spec.String, Required: true, Help: "What the user decided."},
+		},
+		Effects:  []string{"Moves the escalation to desk/escalations/resolved/ with the decision, logs it, and notifies the dossier."},
+		Examples: []string{`office resolve P-0018 --decision "Règle adoptée dans la charte perso."`},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				return a.Resolve(ctx.Str("escalation"), ctx.Str("decision"))
 			})
 		},
 	})

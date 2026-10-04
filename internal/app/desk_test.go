@@ -183,3 +183,50 @@ func TestStarMarksADossierButNotTheDesk(t *testing.T) {
 		t.Fatal("the desk took a star")
 	}
 }
+
+func TestResolveTellsTheDossierAndFilesTheEscalation(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Citations", NoStart: true})
+	f.a.Open(OpenParams{Title: "Skills", NoStart: true})
+	deskWith(t, f, "idle")
+	f.a.Escalate(mustGet(t, f, "1"), "Règle des citations")
+	deskWith(t, f, "working")
+	f.a.Escalate(mustGet(t, f, "2"), "Skill compta")
+	open := OpenEscalations(f.a.Desk())
+	if len(open) != 2 || open[0].Status != escalationDelivered || open[1].Status != escalationPending {
+		t.Fatalf("open %+v", open)
+	}
+	if _, err := f.a.Resolve("D-0003", "x"); err == nil {
+		t.Fatal("resolved an escalation nobody sent")
+	}
+	if _, err := f.a.Resolve("D-0001", " "); err == nil {
+		t.Fatal("resolved without a decision")
+	}
+	res, err := f.a.Resolve("D-0001", "Règle adoptée.")
+	if err != nil || res.From != "D-0001" || res.Open != 1 {
+		t.Fatalf("resolve %+v %v", res, err)
+	}
+	if res, err := f.a.Resolve(strings.TrimSuffix(open[1].File, ".md"), "Lien ajouté."); err != nil || res.Open != 0 {
+		t.Fatalf("resolve by file %+v %v", res, err)
+	}
+	done := ResolvedEscalations(f.a.Desk())
+	if len(done) != 2 || !strings.Contains(done[0].Text, "Decision (") || !strings.Contains(done[0].Text, "Règle adoptée.") {
+		t.Fatalf("resolved %+v", done)
+	}
+	if log, _ := os.ReadFile(mustGet(t, f, "1").Path("log.md")); !strings.Contains(string(log), "Decision on your escalation: Règle adoptée.") {
+		t.Fatalf("dossier log:\n%s", log)
+	}
+	if _, err := f.a.Resolve("D-0001", "encore"); err == nil {
+		t.Fatal("resolved twice")
+	}
+}
+
+func TestStartGivesAStoppedDossierItsSession(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Citations", NoStart: true})
+	d := mustGet(t, f, "1")
+	how, err := f.a.Start(d)
+	if err != nil || how != "started" || d.Run.Session == "" || len(f.calls("session/prompt")) != 1 {
+		t.Fatalf("start %q %v %+v", how, err, d.Run)
+	}
+}

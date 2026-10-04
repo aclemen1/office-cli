@@ -1034,3 +1034,15 @@ func LastActivity(d *dossier.Dossier) time.Time {
 	}
 	return time.Time{}
 }
+
+// Start makes the dossier's session run on the current binary: it starts a
+// stopped session (or a first one, with the open prompt) and restarts a live one.
+func (a *App) Start(d *dossier.Dossier) (string, error) {
+	if d.Run.Session != "" && paneAlive(d.Run.PaneID) {
+		return "restarted", a.Restart(d)
+	}
+	if err := a.ensureRunning(d, false); err != nil {
+		return "", err
+	}
+	return "started", d.Save()
+}

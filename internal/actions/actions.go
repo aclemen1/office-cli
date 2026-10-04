@@ -359,7 +359,7 @@ func init() {
 				fmt.Fprintf(w, "session %s · tab %s\n", s.Session, s.TabID)
 			}
 			for _, e := range s.Escalations {
-				fmt.Fprintf(w, "pending %s\n", e.Text)
+				fmt.Fprintf(w, "%-9s %s · %s\n", e.Status, e.File, e.Text)
 			}
 			if s.Body != "" {
 				fmt.Fprintf(w, "\n%s\n", s.Body)

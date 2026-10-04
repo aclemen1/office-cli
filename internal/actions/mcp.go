@@ -19,10 +19,14 @@ type tool struct {
 	self                      []string          // params that default to DOSSIER_ID
 	rename                    map[string]string // action param → tool param
 	hide                      []string
-	dossierOnly               bool // not served to the desk's session
+	dossierOnly               bool   // not served to the desk's session
+	deskOnly                  bool   // served only to the desk's session
+	deskDescription           string // replaces description on the desk
 }
 
 var tools = []tool{
+	{name: "ls", action: "ls", description: "List the office's dossiers with their state and what their agent is doing; status todo lists what needs the user."},
+	{name: "offices", action: "offices", hide: []string{"root"}, description: "List the offices beside this one: sphere, id prefix, charter, open and waiting dossiers."},
 	{name: "show", action: "show", self: []string{"id"}, description: "Show a dossier: state, sources, files, links, history, and the body of its fiche (instruction, notes, sections such as « À ne pas oublier »)."},
 	{name: "search", action: "search", description: "Search every dossier of the office, open or closed."},
 	{name: "grep", action: "grep", self: []string{"id"}, rename: map[string]string{"id": "dossier"},
@@ -37,7 +41,8 @@ var tools = []tool{
 	{name: "close", action: "close", self: []string{"id"}, description: "Close a dossier once the user says it is settled."},
 	{name: "delete", action: "delete", self: []string{"id"}, description: "Delete a dossier that should not exist (a test, a mistake), after the user asked: its signal is withdrawn and its directory removed. A settled affair gets close instead."},
 	{name: "open", action: "open", self: []string{"in"}, hide: []string{"source", "thread", "url"},
-		description: "Open a new dossier. By default this dossier includes it (an item of this meeting, a side affair); pass in = [] for a dossier on its own, or other dossiers that include it."},
+		description: "Open a new dossier. By default this dossier includes it (an item of this meeting, a side affair); pass in = [] for a dossier on its own, or other dossiers that include it.",
+		deskDescription: "Open a new dossier, on its own by default; pass in with the dossiers that include it (a meeting, a lasting dossier)."},
 	{name: "link", action: "link", self: []string{"from"}, description: "Link a dossier to another: includes (part of it) or depends_on (waits for)."},
 	{name: "unlink", action: "unlink", self: []string{"from"}, description: "Remove links from a dossier to another."},
 	{name: "track", action: "track", self: []string{"id"},
@@ -45,6 +50,9 @@ var tools = []tool{
 	{name: "merge", action: "merge", self: []string{"from"}, description: "Merge a dossier into another one, after the user agreed."},
 	{name: "move", action: "move", description: "Move dossiers to another office (its sphere, e.g. pro): they get a number there, links among them stay. Only when the user asked."},
 	{name: "notify", action: "notify", self: []string{"from"}, description: "Tell another dossier something: a decision, new information, a request. Its session gets it as a prompt."},
+	{name: "start", action: "start", description: "Start a dossier's session when it is stopped, or restart it when it runs (same conversation, current binary). Name the dossier, or desk."},
+	{name: "escalations", action: "escalations", deskOnly: true, description: "List the escalations not resolved yet: pending (not yet shown to you) and delivered."},
+	{name: "resolve", action: "resolve", deskOnly: true, description: "Resolve an escalation once the user decided: the decision is recorded and the dossier it came from is told."},
 	{name: "escalate", action: "escalate", self: []string{"id"}, dossierOnly: true,
 		description: "Escalate to the office's desk what goes beyond this dossier: a rule to adopt, a skill to change, a request for the user. The desk gets it as a prompt once its session is idle."},
 }
@@ -53,8 +61,11 @@ var tools = []tool{
 func toolsFor(desk bool) []tool {
 	var out []tool
 	for _, t := range tools {
-		if desk && t.dossierOnly {
+		if (desk && t.dossierOnly) || (!desk && t.deskOnly) {
 			continue
+		}
+		if desk && t.deskDescription != "" {
+			t.description = t.deskDescription
 		}
 		out = append(out, t)
 	}

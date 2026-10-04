@@ -111,10 +111,17 @@ func archivedTranscripts(d *dossier.Dossier) []string {
 const escalationsDir = "escalations"
 
 type Escalation struct {
-	File string `json:"file"`
-	From string `json:"from"`
-	Text string `json:"text"`
+	File   string `json:"file"`
+	From   string `json:"from"`
+	Text   string `json:"text"`
+	Status string `json:"status"` // pending (not yet shown to the desk), delivered, resolved
 }
+
+const (
+	escalationPending   = "pending"
+	escalationDelivered = "delivered"
+	escalationResolved  = "resolved"
+)
 
 type EscalateResult struct {
 	From      string `json:"from"`
@@ -155,7 +162,23 @@ func (a *App) Escalate(from *dossier.Dossier, text string) (EscalateResult, erro
 
 // Escalations lists the desk's pending escalations, oldest first.
 func Escalations(d *dossier.Dossier) []Escalation {
-	m, _ := filepath.Glob(d.Path(escalationsDir, "*.md"))
+	return escalationsIn(d, escalationPending)
+}
+
+// OpenEscalations lists the escalations the desk has not resolved yet,
+// delivered or not, oldest first.
+func OpenEscalations(d *dossier.Dossier) []Escalation {
+	out := append(escalationsIn(d, escalationDelivered), escalationsIn(d, escalationPending)...)
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	return out
+}
+
+func escalationsIn(d *dossier.Dossier, status string) []Escalation {
+	dir := d.Path(escalationsDir)
+	if status != escalationPending {
+		dir = d.Path(escalationsDir, status)
+	}
+	m, _ := filepath.Glob(filepath.Join(dir, "*.md"))
 	sort.Strings(m)
 	out := []Escalation{}
 	for _, p := range m {
@@ -165,9 +188,91 @@ func Escalations(d *dossier.Dossier) []Escalation {
 		}
 		base := strings.TrimSuffix(filepath.Base(p), ".md")
 		_, from, _ := strings.Cut(base, "_")
-		out = append(out, Escalation{File: filepath.Base(p), From: from, Text: strings.TrimSpace(string(b))})
+		out = append(out, Escalation{File: filepath.Base(p), From: from, Text: strings.TrimSpace(string(b)), Status: status})
 	}
 	return out
+}
+
+func (e Escalation) path(d *dossier.Dossier) string {
+	if e.Status == escalationPending {
+		return d.Path(escalationsDir, e.File)
+	}
+	return d.Path(escalationsDir, e.Status, e.File)
+}
+
+type ResolveResult struct {
+	File     string `json:"file"`
+	From     string `json:"from"`
+	Prompted bool   `json:"prompted"`
+	Open     int    `json:"open"`
+}
+
+// Resolve records the desk's decision on an open escalation, named by its
+// file or by the dossier it came from, tells that dossier, and files the
+// escalation under escalations/resolved/.
+func (a *App) Resolve(ref, decision string) (ResolveResult, error) {
+	d := a.Desk()
+	var res ResolveResult
+	if strings.TrimSpace(decision) == "" {
+		return res, spec.UserError("a resolution needs --decision")
+	}
+	refID := ""
+	if x, err := a.Load(ref); err == nil {
+		refID = x.ID
+	}
+	var hits []Escalation
+	for _, e := range OpenEscalations(d) {
+		if e.File == ref || strings.TrimSuffix(e.File, ".md") == ref || (refID != "" && e.From == refID) {
+			hits = append(hits, e)
+		}
+	}
+	switch {
+	case len(hits) == 0:
+		return res, spec.UserError("no open escalation matches %q. List them with `office escalations`", ref)
+	case len(hits) > 1:
+		files := make([]string, len(hits))
+		for i, e := range hits {
+			files[i] = e.File
+		}
+		return res, spec.UserError("%d open escalations match %q; name one by its file: %s", len(hits), ref, strings.Join(files, ", "))
+	}
+	e := hits[0]
+	res.File, res.From = e.File, e.From
+	if err := os.MkdirAll(d.Path(escalationsDir, escalationResolved), 0o755); err != nil {
+		return res, err
+	}
+	body := e.Text + "\n\nDecision (" + now().Format("2006-01-02 15:04") + "): " + decision + "\n"
+	if err := os.WriteFile(d.Path(escalationsDir, escalationResolved, e.File), []byte(body), 0o644); err != nil {
+		return res, err
+	}
+	if err := os.Remove(e.path(d)); err != nil {
+		return res, err
+	}
+	_ = d.Log("escalation from %s resolved · %s", e.From, decision)
+	if to, err := a.Load(e.From); err == nil {
+		res.Prompted, err = a.Tell(d, to, "Decision on your escalation: "+decision)
+		if err != nil {
+			return res, err
+		}
+	}
+	res.Open = len(OpenEscalations(d))
+	return res, nil
+}
+
+// Tell logs an event from one dossier in another, wakes it and prompts its
+// session; it reports whether a session got the prompt.
+func (a *App) Tell(from, to *dossier.Dossier, text string) (bool, error) {
+	_ = to.Log("from %s: %s", from.ID, text)
+	if IsDesk(from) {
+		_ = from.Log("notified %s · %s", to.ID, text)
+	}
+	if _, err := a.Wake(to, "notified by "+from.ID); err != nil {
+		return false, err
+	}
+	if to.Run.Session == "" {
+		return false, to.Save()
+	}
+	return true, a.Prompt(to, fmt.Sprintf("From dossier %s (%s): %s", from.ID, from.Title, text))
 }
 
 // DeliverEscalations sends the pending escalations to the desk in one prompt
@@ -190,11 +295,11 @@ func (a *App) DeliverEscalations() (int, error) {
 	if err := a.Prompt(d, b.String()); err != nil {
 		return 0, err
 	}
-	if err := os.MkdirAll(d.Path(escalationsDir, "delivered"), 0o755); err != nil {
+	if err := os.MkdirAll(d.Path(escalationsDir, escalationDelivered), 0o755); err != nil {
 		return 0, err
 	}
 	for _, e := range pending {
-		_ = os.Rename(d.Path(escalationsDir, e.File), d.Path(escalationsDir, "delivered", e.File))
+		_ = os.Rename(d.Path(escalationsDir, e.File), d.Path(escalationsDir, escalationDelivered, e.File))
 		_ = d.Log("escalation from %s delivered", e.From)
 	}
 	return len(pending), nil
@@ -236,4 +341,9 @@ func ConversationOf(d *dossier.Dossier) Conversation {
 		}
 	}
 	return c
+}
+
+// ResolvedEscalations lists the escalations the desk has resolved, oldest first.
+func ResolvedEscalations(d *dossier.Dossier) []Escalation {
+	return escalationsIn(d, escalationResolved)
 }

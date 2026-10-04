@@ -327,3 +327,32 @@ func TestMCPOnTheDeskNamesItsDossier(t *testing.T) {
 		t.Fatalf("a dossier opened from the desk stands alone: %v", r)
 	}
 }
+
+func TestMCPServesTheDeskItsOwnTools(t *testing.T) {
+	names := func(desk bool) map[string]tool {
+		m := map[string]tool{}
+		for _, tl := range toolsFor(desk) {
+			m[tl.name] = tl
+		}
+		return m
+	}
+	desk, dossier := names(true), names(false)
+	for _, n := range []string{"ls", "offices", "start", "escalations", "resolve"} {
+		if _, ok := desk[n]; !ok {
+			t.Fatalf("the desk lacks %s", n)
+		}
+	}
+	for _, n := range []string{"escalations", "resolve"} {
+		if _, ok := dossier[n]; ok {
+			t.Fatalf("a dossier is offered %s", n)
+		}
+	}
+	if strings.Contains(desk["open"].description, "in = []") || !strings.Contains(dossier["open"].description, "in = []") {
+		t.Fatalf("open: desk %q / dossier %q", desk["open"].description, dossier["open"].description)
+	}
+	for n, tl := range desk {
+		if spec.FindVerb(tl.action) == nil {
+			t.Fatalf("tool %s maps to no action %s", n, tl.action)
+		}
+	}
+}
