@@ -169,3 +169,23 @@ func TestResolveNamesASiblingOfficeBySphere(t *testing.T) {
 		t.Fatal("an unknown sphere was resolved")
 	}
 }
+
+func TestANumberIsNeverGivenTwice(t *testing.T) {
+	s, err := Init(filepath.Join(t.TempDir(), "perso"), "perso", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n1, d1, _ := s.NewDir("a")
+	n2, _, _ := s.NewDir("b")
+	os.RemoveAll(d1)
+	if err := os.RemoveAll(filepath.Join(s.Root, "0002-b")); err != nil {
+		t.Fatal(err)
+	}
+	if n3, _, err := s.NewDir("c"); err != nil || n3 != 3 || n1 != 1 {
+		t.Fatalf("numbers %d %d %d %v", n1, n2, n3, err)
+	}
+	s.AddRedirect("D-0009", "U-0001", "/elsewhere")
+	if n, _, _ := s.NewDir("d"); n != 10 {
+		t.Fatalf("a redirected number was given again: %d", n)
+	}
+}

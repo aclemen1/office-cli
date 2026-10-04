@@ -68,6 +68,12 @@ func TestMoveTakesDossiersToAnotherOfficeWithTheirLinksAmongThem(t *testing.T) {
 	if _, err := f.a.Move([]string{"D-0003"}, f.a.S); err == nil {
 		t.Fatal("a move to the same office was accepted")
 	}
+	if _, err := f.a.Load("D-0001"); err == nil || !strings.Contains(err.Error(), "moved to "+res.Moved[0].To) {
+		t.Fatalf("the moved id should point to its new one: %v", err)
+	}
+	if r, _ := f.a.Open(OpenParams{Title: "Après", NoStart: true}); r.ID != "D-0004" {
+		t.Fatalf("a moved number was given again: %s", r.ID)
+	}
 }
 
 func TestProjectDirFollowsClaudeCodesNaming(t *testing.T) {

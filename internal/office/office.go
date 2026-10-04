@@ -1,6 +1,7 @@
 package office
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -104,7 +105,7 @@ func Open(root string) (*Office, error) {
 	}
 	cfgPath := filepath.Join(root, metaDir, "config.toml")
 	if _, err := os.Stat(cfgPath); err != nil {
-		return nil, spec.NotFound("%s is not a office (no %s/config.toml). Create it with `office init %s --sphere <name>`", root, metaDir, root)
+		return nil, spec.NotFound("%s is not an office (no %s/config.toml). Create it with `office init %s --sphere <name>`", root, metaDir, root)
 	}
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
@@ -205,7 +206,7 @@ func (s *Office) NewDir(slug string) (num int, dir string, err error) {
 	if err != nil {
 		return 0, "", err
 	}
-	next := 1
+	next := s.lastID() + 1
 	for _, d := range dirs {
 		if m := dirRe.FindStringSubmatch(filepath.Base(d)); m != nil {
 			if n, _ := strconv.Atoi(m[1]); n >= next {
@@ -216,7 +217,7 @@ func (s *Office) NewDir(slug string) (num int, dir string, err error) {
 	for tries := 0; tries < 100; tries++ {
 		dir = filepath.Join(s.Root, fmt.Sprintf("%04d-%s", next, slug))
 		if err = os.Mkdir(dir, 0o755); err == nil {
-			return next, dir, nil
+			return next, dir, os.WriteFile(s.Meta(lastIDFile), []byte(strconv.Itoa(next)+"\n"), 0o644)
 		}
 		if !errors.Is(err, os.ErrExist) {
 			return 0, "", err
@@ -259,6 +260,9 @@ func (s *Office) FindDir(id string) (string, error) {
 		if n, _ := strconv.Atoi(dirRe.FindStringSubmatch(filepath.Base(d))[1]); n == want {
 			return d, nil
 		}
+	}
+	if r, ok := s.Redirects()[s.FormatID(want)]; ok {
+		return "", spec.NotFound("%s was moved to %s, in office %s. Pass --office %s", s.FormatID(want), r.To, r.Office, r.Office)
 	}
 	return "", spec.NotFound("no dossier %s in %s. List them with `office ls --status all`", s.FormatID(want), s.Root)
 }
@@ -316,4 +320,50 @@ func Discover(root string) []string {
 func isOffice(p string) bool {
 	fi, err := os.Stat(filepath.Join(p, ".office", "config.toml"))
 	return err == nil && !fi.IsDir()
+}
+
+// A number is never given twice: last_id keeps the highest one issued, even
+// after its dossier was deleted or moved away.
+const (
+	lastIDFile    = "last_id"
+	redirectsFile = "moved.json"
+)
+
+func (s *Office) lastID() int {
+	b, _ := os.ReadFile(s.Meta(lastIDFile))
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	for id := range s.Redirects() {
+		if m := idRe.FindStringSubmatch(id); m != nil {
+			if k, _ := strconv.Atoi(m[2]); k > n {
+				n = k
+			}
+		}
+	}
+	return n
+}
+
+// Redirect says where a moved dossier went.
+type Redirect struct {
+	To     string `json:"to"`
+	Office string `json:"office"`
+}
+
+// Redirects maps the ids of the dossiers moved out of this office to their new ids.
+func (s *Office) Redirects() map[string]Redirect {
+	m := map[string]Redirect{}
+	if b, err := os.ReadFile(s.Meta(redirectsFile)); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+// AddRedirect records that dossier id now lives in office root as to.
+func (s *Office) AddRedirect(id, to, root string) error {
+	m := s.Redirects()
+	m[id] = Redirect{To: to, Office: root}
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.Meta(redirectsFile), append(b, '\n'), 0o644)
 }
