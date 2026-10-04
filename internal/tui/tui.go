@@ -804,6 +804,9 @@ func (m *model) listView(w, h int) string {
 }
 
 func (m *model) rowView(r row, sel bool, w int) string {
+	if r.rule {
+		return " " + sFaint.Render(strings.Repeat("─", max(0, w-2)))
+	}
 	if r.spacer() {
 		return ""
 	}

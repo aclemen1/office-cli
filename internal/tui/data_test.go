@@ -43,6 +43,10 @@ func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 	}
 	var got []string
 	for _, r := range rows {
+		if r.rule {
+			got = append(got, "—")
+			continue
+		}
 		if r.header != "" {
 			got = append(got, "#"+r.header)
 			continue
@@ -53,11 +57,11 @@ func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 		}
 		got = append(got, line)
 	}
-	want := "#pro,Seul,Séance,>Point A,>Point B,>>Séance↻"
+	want := "#pro,—,Seul,Séance,>Point A,>Point B,>>Séance↻"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("rows\n got %s\nwant %s", strings.Join(got, ","), want)
 	}
-	if rows, _, _ := load(office.Discover(root), view{filter: "seul"}); len(rows) != 2 || rows[1].d.Title != "Seul" {
+	if rows, _, _ := load(office.Discover(root), view{filter: "seul"}); len(rows) != 3 || rows[2].d.Title != "Seul" {
 		t.Fatalf("filter: %+v", rows)
 	}
 }
@@ -72,11 +76,11 @@ func TestLinksGroupEveryRelationOfALinkedDossier(t *testing.T) {
 	a.Link("1", "2", dossier.RelIncludes)
 	a.Link("1", "2", dossier.RelDependsOn)
 	rows, _, _ := load(office.Discover(root), view{})
-	ls := links(rows[1].office, rows[1].d)
+	ls := links(rows[2].office, rows[2].d)
 	if len(ls) != 1 || ls[0].id != "D-0002" || strings.Join(ls[0].rels, ",") != "includes,depends on" {
 		t.Fatalf("séance links %+v", ls)
 	}
-	ls = links(rows[2].office, rows[2].d)
+	ls = links(rows[3].office, rows[3].d)
 	if len(ls) != 1 || strings.Join(ls[0].rels, ",") != "included by,needed by" {
 		t.Fatalf("point links %+v", ls)
 	}

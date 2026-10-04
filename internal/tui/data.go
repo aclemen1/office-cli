@@ -16,6 +16,7 @@ import (
 // dossier that includes it.
 type row struct {
 	header   string
+	rule     bool // a thin line under the desk row
 	office   *officeView
 	d        *dossier.Dossier
 	activity string
@@ -159,6 +160,7 @@ func load(roots []string, v view) ([]row, []*officeView, []string) {
 			rows = append(rows, row{})
 		}
 		rows = append(rows, deskRow(sv))
+		rows = append(rows, row{rule: true})
 		rows = append(rows, treeRows(sv, ds, live, v)...)
 	}
 	if byPerson {
@@ -315,18 +317,7 @@ func treeRows(sv *officeView, ds []*dossier.Dossier, live map[string]string, v v
 		delete(path, id)
 	}
 	for _, id := range roots {
-		// A dossier with its points stands apart from its neighbours.
-		grouped := len(children[id]) > 0
-		if grouped && len(out) > 0 && !out[len(out)-1].spacer() {
-			out = append(out, row{})
-		}
 		walk(id, 0, nil, map[string]bool{})
-		if grouped {
-			out = append(out, row{})
-		}
-	}
-	if n := len(out); n > 0 && out[n-1].spacer() {
-		out = out[:n-1]
 	}
 	// A cycle of links leaves dossiers that no root reaches: start from them too.
 	for {
