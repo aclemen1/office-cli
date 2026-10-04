@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
-func TestMoveTakesDossiersToAnotherStoreWithTheirLinksAmongThem(t *testing.T) {
+func TestMoveTakesDossiersToAnotherOfficeWithTheirLinksAmongThem(t *testing.T) {
 	f := newFixture(t)
-	pro, err := store.Init(filepath.Join(filepath.Dir(f.a.S.Root), "pro"), "pro", false)
+	pro, err := office.Init(filepath.Join(filepath.Dir(f.a.S.Root), "pro"), "pro", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,29 +66,29 @@ func TestMoveTakesDossiersToAnotherStoreWithTheirLinksAmongThem(t *testing.T) {
 		t.Fatalf("the session should restart in the new directory: %v", load)
 	}
 	if _, err := f.a.Move([]string{"D-0003"}, f.a.S); err == nil {
-		t.Fatal("a move to the same store was accepted")
+		t.Fatal("a move to the same office was accepted")
 	}
 }
 
 func TestProjectDirFollowsClaudeCodesNaming(t *testing.T) {
 	t.Setenv("HOME", "/Users/x")
-	if got := filepath.Base(projectDir("/Users/x/dossiers/pro/0035-home-nfs")); got != "-Users-x-dossiers-pro-0035-home-nfs" {
+	if got := filepath.Base(projectDir("/Users/x/offices/pro/0035-home-nfs")); got != "-Users-x-offices-pro-0035-home-nfs" {
 		t.Fatalf("project dir %s", got)
 	}
 }
 
-func TestIngestLeavesTheStoreFreeWhilePolling(t *testing.T) {
+func TestIngestLeavesTheOfficeFreeWhilePolling(t *testing.T) {
 	f := newFixture(t)
 	f.setMode("slow")
-	old := store.LockWait
-	store.LockWait = time.Second
-	t.Cleanup(func() { store.LockWait = old })
+	old := office.LockWait
+	office.LockWait = time.Second
+	t.Cleanup(func() { office.LockWait = old })
 	done := make(chan struct{})
 	go func() { f.a.Ingest(nil, connector.PollOptions{Now: true}); close(done) }()
 	time.Sleep(500 * time.Millisecond)
-	other, _ := store.Open(f.a.S.Root)
+	other, _ := office.Open(f.a.S.Root)
 	if err := other.Lock(); err != nil {
-		t.Fatalf("a slow source keeps the store locked: %v", err)
+		t.Fatalf("a slow source keeps the office locked: %v", err)
 	}
 	other.Unlock()
 	<-done

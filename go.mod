@@ -1,4 +1,4 @@
-module github.com/aclemen1/dossier-cli
+module github.com/aclemen1/office-cli
 
 go 1.26.5
 

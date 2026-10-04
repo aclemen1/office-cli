@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
-// SkillsReport says what the store's skills directory holds after a sync.
+// SkillsReport says what the office's skills directory holds after a sync.
 type SkillsReport struct {
 	Dir       string   `json:"dir"`
 	Linked    []string `json:"linked"`
@@ -24,7 +24,7 @@ type SkillsReport struct {
 	Errors    []string `json:"errors,omitempty"`
 }
 
-// SyncSkills makes <store>/.claude/skills match [agent] skills and
+// SyncSkills makes <office>/.claude/skills match [agent] skills and
 // skill_commands. Only symlinks are ever removed; a real directory placed there
 // by hand stays.
 func (a *App) SyncSkills() SkillsReport {
@@ -40,7 +40,7 @@ func (a *App) SyncSkills() SkillsReport {
 	}
 	want := map[string]bool{}
 	for _, src := range cfg.Skills {
-		src = store.ExpandHome(src)
+		src = office.ExpandHome(src)
 		name := filepath.Base(src)
 		want[name] = true
 		if _, err := os.Stat(filepath.Join(src, "SKILL.md")); err != nil {
@@ -74,7 +74,7 @@ func (a *App) SyncSkills() SkillsReport {
 		if len(argv) == 0 {
 			continue
 		}
-		out, err := exec.Command(store.ExpandHome(argv[0]), argv[1:]...).Output()
+		out, err := exec.Command(office.ExpandHome(argv[0]), argv[1:]...).Output()
 		if err != nil || !bytes.HasPrefix(bytes.TrimSpace(out), []byte("---")) {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("skill %s: %s did not print a SKILL.md (%v)", name, strings.Join(argv, " "), err))
 			continue
@@ -114,7 +114,7 @@ func (a *App) SyncSkills() SkillsReport {
 func (a *App) protected() []string {
 	var out []string
 	for _, p := range a.S.Config.Agent.Protect {
-		out = append(out, filepath.Clean(store.ExpandHome(p)))
+		out = append(out, filepath.Clean(office.ExpandHome(p)))
 	}
 	return out
 }
@@ -148,7 +148,7 @@ func (a *App) agentSettings() (string, error) {
 			deny = append(deny, "Edit(/"+p+"/**)")
 		}
 	}
-	settings["permissions"] = map[string]any{"allow": []string{"mcp__dossier"}, "deny": deny}
+	settings["permissions"] = map[string]any{"allow": []string{"mcp__office"}, "deny": deny}
 	if off := a.S.Config.Agent.DisablePlugins; len(off) > 0 {
 		plugins := map[string]bool{}
 		for _, p := range off {
@@ -192,7 +192,7 @@ func (a *App) Guard(command string) map[string]any {
 			return map[string]any{"hookSpecificOutput": map[string]any{
 				"hookEventName":            "PreToolUse",
 				"permissionDecision":       "deny",
-				"permissionDecisionReason": fmt.Sprintf("%s is protected by the dossier store (agent.protect): read it, never change it with a shell command. Ask the user to move or edit what is there.", p),
+				"permissionDecisionReason": fmt.Sprintf("%s is protected by the office (agent.protect): read it, never change it with a shell command. Ask the user to move or edit what is there.", p),
 			}}
 		}
 	}

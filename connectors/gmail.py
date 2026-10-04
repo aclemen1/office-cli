@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""dossier source connector for Gmail, through the gws CLI.
+"""office source connector for Gmail, through the gws CLI.
 
 Signals are yellow stars: every starred thread on the first poll, then the stars
 added since (Gmail history). A Google Task linked to the email (Shift-T) is
@@ -135,7 +135,7 @@ def render_messages(thread_id, subject, messages, kind="Email Thread"):
         "description": f"{len(messages)} message(s), last from {header(messages[-1], 'From')}" if messages else "",
         "sources": [{"resource": message_url(messages[0]["id"]) if messages else "", "id": f"gmail:thread/{thread_id}",
                      "author": first_from, "last_modified": last_date}],
-        "generated": {"by": "process:dossier-source-gmail", "at": now_rfc3339()},
+        "generated": {"by": "process:office-source-gmail", "at": now_rfc3339()},
     })
     parts = [fm, f"# {subject}\n"]
     for m in messages:
@@ -175,7 +175,7 @@ def attachment_files(messages, tmpdir):
                 "checksum": "sha256:" + hashlib.sha256(raw).hexdigest(),
                 "size": len(raw),
                 "sources": [{"resource": message_url(m["id"]), "author": header(m, "From"), "last_modified": header(m, "Date")}],
-                "generated": {"by": "process:dossier-source-gmail", "at": now_rfc3339()},
+                "generated": {"by": "process:office-source-gmail", "at": now_rfc3339()},
             })
             files.append({"name": name, "path": path})
             files.append({"name": name + ".md", "content": companion})
@@ -342,7 +342,7 @@ def poll(inp):
     started = now_rfc3339()
     profile = gws("gmail", "users", "getProfile", params={"userId": "me", "fields": "historyId,emailAddress"})
     history_now, me = profile["historyId"], profile.get("emailAddress", "").lower()
-    tmpdir = tempfile.mkdtemp(prefix="dossier-gmail-")
+    tmpdir = tempfile.mkdtemp(prefix="office-gmail-")
 
     settle = 0 if inp.get("now") else seconds(cfg.get("settle"))
 

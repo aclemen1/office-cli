@@ -1,4 +1,4 @@
-package store
+package office
 
 import (
 	"errors"
@@ -14,23 +14,23 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
-const metaDir = ".dossier"
+const metaDir = ".office"
 
-type Store struct {
+type Office struct {
 	Root   string
 	Config Config
 	lock   *os.File
 }
 
-func (s *Store) Meta(parts ...string) string {
+func (s *Office) Meta(parts ...string) string {
 	return filepath.Join(append([]string{s.Root, metaDir}, parts...)...)
 }
 
 type userConfig struct {
-	DefaultStore string `toml:"default_store"`
+	DefaultOffice string `toml:"default_office"`
 }
 
 func userConfigPath() string {
@@ -38,14 +38,14 @@ func userConfigPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		dir = xdg
 	}
-	return filepath.Join(dir, "dossier", "config.toml")
+	return filepath.Join(dir, "office", "config.toml")
 }
 
-// Resolve finds the store: --store, then DOSSIER_STORE, then the store that
-// contains the working directory, then default_store.
-// A --store without a path separator that is no directory names a sibling of
-// the default store by its sphere or directory name: --store pro.
-func Resolve(flag string) (*Store, error) {
+// Resolve finds the office: --office, then OFFICE_DIR, then the office that
+// contains the working directory, then default_office.
+// A --office without a path separator that is no directory names a sibling of
+// the default office by its sphere or directory name: --office pro.
+func Resolve(flag string) (*Office, error) {
 	if flag != "" && !strings.ContainsRune(flag, filepath.Separator) {
 		if _, err := os.Stat(flag); err != nil {
 			base, err := resolveDefault()
@@ -53,11 +53,11 @@ func Resolve(flag string) (*Store, error) {
 				return nil, err
 			}
 			for _, dir := range Discover(filepath.Dir(base.Root)) {
-				if s, err := Open(dir); err == nil && (strings.EqualFold(s.Config.Store.Sphere, flag) || strings.EqualFold(filepath.Base(dir), flag)) {
+				if s, err := Open(dir); err == nil && (strings.EqualFold(s.Config.Office.Sphere, flag) || strings.EqualFold(filepath.Base(dir), flag)) {
 					return s, nil
 				}
 			}
-			return nil, spec.NotFound("no store named %q next to %s. List them with `dossier stores`", flag, base.Root)
+			return nil, spec.NotFound("no office named %q next to %s. List them with `office offices`", flag, base.Root)
 		}
 	}
 	if flag != "" {
@@ -66,8 +66,8 @@ func Resolve(flag string) (*Store, error) {
 	return resolveDefault()
 }
 
-// Sibling is the store next to s whose dossiers carry this id prefix.
-func (s *Store) Sibling(prefix string) *Store {
+// Sibling is the office next to s whose dossiers carry this id prefix.
+func (s *Office) Sibling(prefix string) *Office {
 	for _, dir := range Discover(filepath.Dir(s.Root)) {
 		if o, err := Open(dir); err == nil && strings.EqualFold(o.Prefix(), prefix) {
 			return o
@@ -76,8 +76,8 @@ func (s *Store) Sibling(prefix string) *Store {
 	return nil
 }
 
-func resolveDefault() (*Store, error) {
-	if c := os.Getenv("DOSSIER_STORE"); c != "" {
+func resolveDefault() (*Office, error) {
+	if c := os.Getenv("OFFICE_DIR"); c != "" {
 		return Open(ExpandHome(c))
 	}
 	if wd, err := os.Getwd(); err == nil {
@@ -91,32 +91,32 @@ func resolveDefault() (*Store, error) {
 		}
 	}
 	var uc userConfig
-	if _, err := toml.DecodeFile(userConfigPath(), &uc); err == nil && uc.DefaultStore != "" {
-		return Open(ExpandHome(uc.DefaultStore))
+	if _, err := toml.DecodeFile(userConfigPath(), &uc); err == nil && uc.DefaultOffice != "" {
+		return Open(ExpandHome(uc.DefaultOffice))
 	}
-	return nil, spec.NotFound("no dossier store found. Create one with `dossier init ~/dossiers/perso --sphere perso --default`, or pass --store <path>")
+	return nil, spec.NotFound("no office found. Create one with `office init ~/offices/perso --sphere perso --default`, or pass --office <path>")
 }
 
-func Open(root string) (*Store, error) {
+func Open(root string) (*Office, error) {
 	root, _ = filepath.Abs(root)
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		root = real
 	}
 	cfgPath := filepath.Join(root, metaDir, "config.toml")
 	if _, err := os.Stat(cfgPath); err != nil {
-		return nil, spec.NotFound("%s is not a dossier store (no %s/config.toml). Create it with `dossier init %s --sphere <name>`", root, metaDir, root)
+		return nil, spec.NotFound("%s is not a office (no %s/config.toml). Create it with `office init %s --sphere <name>`", root, metaDir, root)
 	}
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return nil, spec.UserError("cannot read %s: %v", cfgPath, err)
 	}
-	return &Store{Root: root, Config: cfg}, nil
+	return &Office{Root: root, Config: cfg}, nil
 }
 
-func Init(root, sphere string, makeDefault bool) (*Store, error) {
+func Init(root, sphere string, makeDefault bool) (*Office, error) {
 	root, _ = filepath.Abs(ExpandHome(root))
 	if _, err := os.Stat(filepath.Join(root, metaDir)); err == nil {
-		return nil, spec.UserError("%s already holds a dossier store (%s/ exists)", root, metaDir)
+		return nil, spec.UserError("%s already holds a office (%s/ exists)", root, metaDir)
 	}
 	sub := func(t string) string { return strings.ReplaceAll(t, "{{sphere}}", sphere) }
 	files := map[string]string{
@@ -143,29 +143,29 @@ func Init(root, sphere string, makeDefault bool) (*Store, error) {
 	if makeDefault {
 		p := userConfigPath()
 		_ = os.MkdirAll(filepath.Dir(p), 0o755)
-		if err := os.WriteFile(p, []byte(fmt.Sprintf("default_store = %q\n", root)), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(fmt.Sprintf("default_office = %q\n", root)), 0o644); err != nil {
 			return nil, err
 		}
 	}
 	return Open(root)
 }
 
-// Lock takes the store-wide lock for mutating operations.
-// LockWait is how long Lock waits for another command to release the store.
+// Lock takes the office-wide lock for mutating operations.
+// LockWait is how long Lock waits for another command to release the office.
 var LockWait = 30 * time.Second
 
-func (s *Store) Lock() error {
+func (s *Office) Lock() error {
 	f, err := os.OpenFile(s.Meta("lock"), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
 	// Wait a while for the other command: a TUI dock should not fail because
-	// an ingest or an agent's tool call holds the store for a moment.
+	// an ingest or an agent's tool call holds the office for a moment.
 	deadline := time.Now().Add(LockWait)
 	for syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
 		if time.Now().After(deadline) {
 			f.Close()
-			return spec.Locked("the store %s is busy with another dossier command; retry in a moment", s.Root)
+			return spec.Locked("the office %s is busy with another dossier command; retry in a moment", s.Root)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -173,7 +173,7 @@ func (s *Store) Lock() error {
 	return nil
 }
 
-func (s *Store) Unlock() {
+func (s *Office) Unlock() {
 	if s.lock != nil {
 		_ = syscall.Flock(int(s.lock.Fd()), syscall.LOCK_UN)
 		s.lock.Close()
@@ -184,7 +184,7 @@ func (s *Store) Unlock() {
 var dirRe = regexp.MustCompile(`^(\d{4,})-`)
 
 // Dirs lists dossier directories, oldest first.
-func (s *Store) Dirs() ([]string, error) {
+func (s *Office) Dirs() ([]string, error) {
 	entries, err := os.ReadDir(s.Root)
 	if err != nil {
 		return nil, err
@@ -200,7 +200,7 @@ func (s *Store) Dirs() ([]string, error) {
 }
 
 // NewDir allocates the next number and creates its directory atomically.
-func (s *Store) NewDir(slug string) (num int, dir string, err error) {
+func (s *Office) NewDir(slug string) (num int, dir string, err error) {
 	dirs, err := s.Dirs()
 	if err != nil {
 		return 0, "", err
@@ -228,27 +228,27 @@ func (s *Store) NewDir(slug string) (num int, dir string, err error) {
 
 var idRe = regexp.MustCompile(`(?i)^(?:([a-z]{1,4})-?)?0*(\d+)(?:-.*)?$`)
 
-// Prefix is the store's id prefix: P for P-0042. D when the config sets none.
-func (s *Store) Prefix() string {
-	if p := strings.TrimSpace(s.Config.Store.IDPrefix); p != "" {
+// Prefix is the office's id prefix: P for P-0042. D when the config sets none.
+func (s *Office) Prefix() string {
+	if p := strings.TrimSpace(s.Config.Office.IDPrefix); p != "" {
 		return strings.ToUpper(p)
 	}
 	return "D"
 }
 
-// FormatID renders a dossier number with the store's prefix.
-func (s *Store) FormatID(n int) string { return fmt.Sprintf("%s-%04d", s.Prefix(), n) }
+// FormatID renders a dossier number with the office's prefix.
+func (s *Office) FormatID(n int) string { return fmt.Sprintf("%s-%04d", s.Prefix(), n) }
 
 // FindDir resolves 42, P-42, P-0042 or 0042-slug to a directory. An id with
-// another store's prefix is refused: the spheres stay apart.
-func (s *Store) FindDir(id string) (string, error) {
+// another office's prefix is refused: the spheres stay apart.
+func (s *Office) FindDir(id string) (string, error) {
 	m := idRe.FindStringSubmatch(strings.TrimSpace(id))
 	ex := s.FormatID(42)
 	if m == nil {
-		return "", spec.UserError("%q is not a dossier id. Use %s, 42 or 0042-slug, for example `dossier show %s`", id, ex, ex)
+		return "", spec.UserError("%q is not a dossier id. Use %s, 42 or 0042-slug, for example `office show %s`", id, ex, ex)
 	}
 	if m[1] != "" && !strings.EqualFold(m[1], s.Prefix()) {
-		return "", spec.UserError("%s belongs to another store: this store (%s) numbers its dossiers %s-…. Pass --store for the other one", strings.TrimSpace(id), s.Root, s.Prefix())
+		return "", spec.UserError("%s belongs to another office: this office (%s) numbers its dossiers %s-…. Pass --office for the other one", strings.TrimSpace(id), s.Root, s.Prefix())
 	}
 	want, _ := strconv.Atoi(m[2])
 	dirs, err := s.Dirs()
@@ -260,7 +260,7 @@ func (s *Store) FindDir(id string) (string, error) {
 			return d, nil
 		}
 	}
-	return "", spec.NotFound("no dossier %s in %s. List them with `dossier ls --status all`", s.FormatID(want), s.Root)
+	return "", spec.NotFound("no dossier %s in %s. List them with `office ls --status all`", s.FormatID(want), s.Root)
 }
 
 func NumberOf(dir string) int {
@@ -271,8 +271,8 @@ func NumberOf(dir string) int {
 	return 0
 }
 
-// ResolvePath resolves a path from the config relative to the store root.
-func (s *Store) ResolvePath(p string) string {
+// ResolvePath resolves a path from the config relative to the office root.
+func (s *Office) ResolvePath(p string) string {
 	p = ExpandHome(p)
 	if filepath.IsAbs(p) {
 		return p
@@ -280,7 +280,7 @@ func (s *Store) ResolvePath(p string) string {
 	return filepath.Join(s.Root, p)
 }
 
-func (s *Store) PromptTemplate(name string) (string, error) {
+func (s *Office) PromptTemplate(name string) (string, error) {
 	rel := map[string]string{"open": s.Config.Prompt.Open, "event": s.Config.Prompt.Event, "deadline": s.Config.Prompt.Deadline}[name]
 	if rel == "" {
 		rel = filepath.Join("prompts", name+".md")
@@ -296,24 +296,24 @@ func (s *Store) PromptTemplate(name string) (string, error) {
 	return string(b), nil
 }
 
-// Discover lists the stores under root: root itself when it is one, otherwise
-// every direct subdirectory that holds a .dossier/config.toml.
+// Discover lists the offices under root: root itself when it is one, otherwise
+// every direct subdirectory that holds a .office/config.toml.
 func Discover(root string) []string {
-	if isStore(root) {
+	if isOffice(root) {
 		return []string{root}
 	}
 	entries, _ := os.ReadDir(root)
 	var out []string
 	for _, e := range entries {
 		p := filepath.Join(root, e.Name())
-		if e.IsDir() && isStore(p) {
+		if e.IsDir() && isOffice(p) {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-func isStore(p string) bool {
-	fi, err := os.Stat(filepath.Join(p, ".dossier", "config.toml"))
+func isOffice(p string) bool {
+	fi, err := os.Stat(filepath.Join(p, ".office", "config.toml"))
 	return err == nil && !fi.IsDir()
 }

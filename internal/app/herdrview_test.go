@@ -8,16 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
-func TestTheAgentViewHidesTheStoresWorkspaces(t *testing.T) {
+func TestTheAgentViewHidesTheOfficesWorkspaces(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	s, _ := store.Init(filepath.Join(t.TempDir(), "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(t.TempDir(), "pro"), "pro", false)
 	oldCall, oldReq := herdrCall, herdrRequest
 	t.Cleanup(func() { herdrCall, herdrRequest = oldCall, oldReq })
 	herdrCall = func(args ...string) ([]byte, error) {
-		return []byte(`{"result":{"workspaces":[{"workspace_id":"w5R","label":"dossiers-pro"},{"workspace_id":"w5","label":"appdir26"}]}}`), nil
+		return []byte(`{"result":{"workspaces":[{"workspace_id":"w5R","label":"offices-pro"},{"workspace_id":"w5","label":"appdir26"}]}}`), nil
 	}
 	var sent string
 	herdrRequest = func(method string, params any) error {
@@ -34,7 +34,7 @@ func TestTheAgentViewHidesTheStoresWorkspaces(t *testing.T) {
 		}
 	}
 	if strings.Contains(sent, `"w5"`) {
-		t.Fatalf("hides a workspace that is not a store's: %s", sent)
+		t.Fatalf("hides a workspace that is not an office's: %s", sent)
 	}
 }
 

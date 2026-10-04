@@ -1,4 +1,4 @@
-// Package tui is an interactive overview of every store under a root: the
+// Package tui is an interactive overview of every office under a root: the
 // dossiers, their links, what their agents do, and a jump to their pane.
 package tui
 
@@ -13,19 +13,19 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
 const refreshEvery = 5 * time.Second
 
-// Run starts the TUI on the stores found under root.
+// Run starts the TUI on the offices found under root.
 // Inside a herdr pane it starts in side mode, unless noSide.
 func Run(root string, noSide, reset bool) error {
-	roots := store.Discover(root)
+	roots := office.Discover(root)
 	if len(roots) == 0 {
-		return fmt.Errorf("no dossier store under %s: a store is a directory holding .dossier/config.toml", root)
+		return fmt.Errorf("no office under %s: an office is a directory holding .office/config.toml", root)
 	}
 	go func() { _ = app.SetAgentView(roots) }()
 	m := &model{roots: roots, root: root}
@@ -42,7 +42,7 @@ type model struct {
 	root            string
 	roots           []string
 	rows            []row
-	stores          []*storeView
+	offices         []*officeView
 	byPerson        bool
 	byPriority      bool
 	waitW           int // width of the waiting column, 0 when nothing waits
@@ -138,11 +138,11 @@ func (m *model) reload() {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		key = m.rows[m.cursor].key()
 	}
-	m.rows, m.stores, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView, docked: m.dockedKey()})
+	m.rows, m.offices, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView, docked: m.dockedKey()})
 	m.syncDocked()
 	// The agent shown at the right is being looked at.
 	for i := range m.rows {
-		if r := m.rows[i]; m.side && r.d != nil && r.store.root == m.docked.root && r.d.ID == m.docked.id {
+		if r := m.rows[i]; m.side && r.d != nil && r.office.root == m.docked.root && r.d.ID == m.docked.id {
 			m.rows[i].unread = false
 		}
 	}
@@ -184,14 +184,14 @@ func (m *model) move(step int) {
 	}
 }
 
-// runArgs calls the installed dossier binary with args on the store root.
+// runArgs calls the installed dossier binary with args on the office root.
 func runArgs(root, verb string, args ...string) tea.Cmd {
 	return func() tea.Msg {
 		exe, err := os.Executable()
 		if err != nil {
 			return doneMsg{id: verb, verb: verb, err: err}
 		}
-		out, err := exec.Command(exe, append(args, "--store", root, "--format", "text")...).CombinedOutput()
+		out, err := exec.Command(exe, append(args, "--office", root, "--format", "text")...).CombinedOutput()
 		return doneMsg{id: verb, verb: verb, out: strings.TrimSpace(string(out)), err: err}
 	}
 }
@@ -204,13 +204,13 @@ func run(root, id, verb string, args ...string) tea.Cmd {
 			return doneMsg{id: id, verb: verb, err: err}
 		}
 		argv := append([]string{verb, id}, args...)
-		argv = append(argv, "--store", root, "--format", "text")
+		argv = append(argv, "--office", root, "--format", "text")
 		out, err := exec.Command(exe, argv...).CombinedOutput()
 		return doneMsg{id: id, verb: verb, out: strings.TrimSpace(string(out)), err: err}
 	}
 }
 
-// ingestNow polls every store at once, without the settle delay of a source,
+// ingestNow polls every office at once, without the settle delay of a source,
 // and sums up what it opened or woke.
 func ingestNow(roots []string) tea.Cmd {
 	return func() tea.Msg {
@@ -220,7 +220,7 @@ func ingestNow(roots []string) tea.Cmd {
 		}
 		var news, failures []string
 		for _, root := range roots {
-			out, err := exec.Command(exe, "ingest", "--now", "--store", root, "--format", "text").CombinedOutput()
+			out, err := exec.Command(exe, "ingest", "--now", "--office", root, "--format", "text").CombinedOutput()
 			if err != nil {
 				failures = append(failures, filepath.Base(root)+": "+firstLine(string(out), err.Error()))
 				continue
@@ -478,13 +478,13 @@ func (m *model) key(k string) tea.Cmd {
 		} else {
 			m.status, m.statusErr = r.d.Label()+": opening its pane…", false
 		}
-		return run(r.store.root, r.d.ID, "attach")
+		return run(r.office.root, r.d.ID, "attach")
 	case "S":
 		if r == nil {
 			break
 		}
 		m.status, m.statusErr = r.d.Label()+": starting its session, no prompt…", false
-		return run(r.store.root, r.d.ID, "attach", "--no-prompt")
+		return run(r.office.root, r.d.ID, "attach", "--no-prompt")
 	case "s":
 		if r == nil {
 			break
@@ -494,7 +494,7 @@ func (m *model) key(k string) tea.Cmd {
 			verb, say = "unstar", " unstarred"
 		}
 		m.status, m.statusErr = r.d.Label()+say, false
-		return run(r.store.root, r.d.ID, verb)
+		return run(r.office.root, r.d.ID, verb)
 	case "+":
 		m.newDossier(r)
 	case "W", "u", "x", "D":
@@ -510,7 +510,7 @@ func (m *model) key(k string) tea.Cmd {
 			verb, say = "unpark", ": needs action again"
 		}
 		m.status, m.statusErr = r.d.Label()+say, false
-		return run(r.store.root, r.d.ID, verb)
+		return run(r.office.root, r.d.ID, verb)
 	case "R":
 		if r == nil {
 			break
@@ -520,7 +520,7 @@ func (m *model) key(k string) tea.Cmd {
 			break
 		}
 		m.status, m.statusErr = r.d.Label()+": restarting its session…", false
-		return run(r.store.root, r.d.ID, "restart")
+		return run(r.office.root, r.d.ID, "restart")
 	}
 	return nil
 }
@@ -685,20 +685,20 @@ func (m *model) topBar(width int) []string {
 	if m.byPriority {
 		order = "by priority"
 	}
-	segs := []string{sTitle.Render("dossier"), sMuted.Render(scope), sMuted.Render(order)}
+	segs := []string{sTitle.Render("office"), sMuted.Render(scope), sMuted.Render(order)}
 	if m.byPerson {
-		segs = []string{sTitle.Render("dossier"), sMuted.Render("waiting, by person")}
+		segs = []string{sTitle.Render("office"), sMuted.Render("waiting, by person")}
 	}
 	if m.agentsView {
-		segs = []string{sTitle.Render("dossier"), sMuted.Render("agents without dossier")}
+		segs = []string{sTitle.Render("office"), sMuted.Render("agents without dossier")}
 	}
 	if m.starredView {
-		segs = []string{sTitle.Render("dossier"), sMuted.Render("starred")}
+		segs = []string{sTitle.Render("office"), sMuted.Render("starred")}
 	}
 	if m.side {
 		segs = append(segs, sMuted.Render("side"))
 	}
-	for _, sv := range m.stores {
+	for _, sv := range m.offices {
 		todo, quiet := 0, 0
 		for _, d := range sv.all {
 			if d.State == dossier.Open && d.NoAction {
@@ -775,7 +775,7 @@ func (m *model) listView(w, h int) string {
 	if m.cursor >= m.offset+h {
 		m.offset = m.cursor - h + 1
 	}
-	// Keep the store header in view when the first dossier under it is selected.
+	// Keep the office header in view when the first dossier under it is selected.
 	if m.cursor > 0 && m.rows[m.cursor-1].header != "" && m.cursor-1 < m.offset {
 		m.offset = m.cursor - 1
 	}
@@ -813,11 +813,11 @@ func (m *model) rowView(r row, sel bool, w int) string {
 	if r.agent != nil {
 		return m.agentRowView(r, sel, w)
 	}
-	if r.header != "" && r.store == nil {
+	if r.header != "" && r.office == nil {
 		return " " + sTitle.Render(strings.ToUpper(r.header))
 	}
 	if r.header != "" {
-		return " " + sTitle.Render(strings.ToUpper(r.header)) + sFaint.Render("  "+r.store.root)
+		return " " + sTitle.Render(strings.ToUpper(r.header)) + sFaint.Render("  "+r.office.root)
 	}
 	d := r.d
 	var tree strings.Builder
@@ -994,7 +994,7 @@ func (m *model) detailView(w, h int) string {
 	field := func(name, value string) { add(label.Render(name) + value) }
 	section := func(name string) { add("", sSection.Render(name), "") }
 
-	head := sTitle.Render(d.Label()) + sMuted.Render("  ·  "+r.store.name)
+	head := sTitle.Render(d.Label()) + sMuted.Render("  ·  "+r.office.name)
 	if d.Label() != d.ID {
 		head += sMuted.Render("  ·  " + d.ID)
 	}
@@ -1020,7 +1020,7 @@ func (m *model) detailView(w, h int) string {
 		field("blocked by", lipgloss.NewStyle().Foreground(cStopped).Render(strings.Join(r.blocked, ", ")))
 	}
 	if n := len(d.Run.PendingTransitions); n > 0 {
-		field("pending", lipgloss.NewStyle().Foreground(cStopped).Render(fmt.Sprintf("%d source transition(s): dossier retry %s", n, d.ID)))
+		field("pending", lipgloss.NewStyle().Foreground(cStopped).Render(fmt.Sprintf("%d source transition(s): office retry %s", n, d.ID)))
 	}
 	field("created", sText.Render(when(d.Created)))
 	field("updated", sText.Render(when(d.Updated)))
@@ -1031,7 +1031,7 @@ func (m *model) detailView(w, h int) string {
 		field("tab", sText.Render(d.Run.TabID))
 	}
 
-	if ls := links(r.store, d); len(ls) > 0 {
+	if ls := links(r.office, d); len(ls) > 0 {
 		section("Links")
 		relW := 0
 		for _, l := range ls {

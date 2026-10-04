@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
-// row is one line of the list: a store header or a dossier, indented under the
+// row is one line of the list: an office header or a dossier, indented under the
 // dossier that includes it.
 type row struct {
 	header   string
-	store    *storeView
+	office   *officeView
 	d        *dossier.Dossier
 	activity string
 	depth    int
@@ -25,7 +25,7 @@ type row struct {
 	cycle    bool           // already shown above on this branch
 	unread   bool           // changed since the user last opened its pane
 	person   bool           // header of a waiting group
-	desk     bool           // store header, carrying the store's desk in d
+	desk     bool           // office header, carrying the office's desk in d
 	agent    *app.AgentPane // an agent in a herdr pane that no dossier holds
 	count    int
 }
@@ -36,7 +36,7 @@ func (r row) selectable() bool { return r.d != nil || r.agent != nil }
 func (r row) key() string {
 	switch {
 	case r.d != nil:
-		return r.store.root + "|" + r.d.ID
+		return r.office.root + "|" + r.d.ID
 	case r.agent != nil:
 		return "agent|" + r.agent.Session
 	}
@@ -44,9 +44,9 @@ func (r row) key() string {
 }
 
 // agentRows lists the Claude Code agents whose session no dossier or desk holds.
-func agentRows(stores []*storeView, filter string) []row {
+func agentRows(offices []*officeView, filter string) []row {
 	held := map[string]bool{}
-	for _, sv := range stores {
+	for _, sv := range offices {
 		for _, d := range append(append([]*dossier.Dossier{}, sv.all...), sv.a.Desk()) {
 			if d.Run.Session != "" {
 				held[d.Run.Session] = true
@@ -62,21 +62,21 @@ func agentRows(stores []*storeView, filter string) []row {
 			continue
 		}
 		a := ag
-		out = append(out, row{agent: &a, activity: app.Activity(&dossier.Dossier{Run: dossier.RunState{Session: a.Session, PaneID: a.PaneID}}, stores[0].live)})
+		out = append(out, row{agent: &a, activity: app.Activity(&dossier.Dossier{Run: dossier.RunState{Session: a.Session, PaneID: a.PaneID}}, offices[0].live)})
 	}
 	return out
 }
 
-// deskRow is the store header: selectable, it stands for the store's desk.
-func deskRow(sv *storeView) row {
+// deskRow is the office header: selectable, it stands for the office's desk.
+func deskRow(sv *officeView) row {
 	d := sv.a.Desk()
-	return row{header: sv.name, store: sv, d: d, desk: true, activity: app.Activity(d, sv.live),
+	return row{header: sv.name, office: sv, d: d, desk: true, activity: app.Activity(d, sv.live),
 		unread: d.Run.Session != "" && unreadOf(sv, d, app.Activity(d, sv.live))}
 }
 
 func (r row) spacer() bool { return r.d == nil && r.agent == nil && r.header == "" }
 
-type storeView struct {
+type officeView struct {
 	name  string
 	root  string
 	a     *app.App
@@ -110,8 +110,8 @@ func shown(d *dossier.Dossier, v view) bool {
 	return strings.Contains(hay, strings.ToLower(v.filter))
 }
 
-// load reads every store. byPerson lays the waiting dossiers out by whom they
-// wait on instead of the store trees.
+// load reads every office. byPerson lays the waiting dossiers out by whom they
+// wait on instead of the office trees.
 // view says what load shows and in which order.
 type view struct {
 	all        bool   // every state, not only open and waiting
@@ -124,14 +124,14 @@ type view struct {
 	docked     string // root|id of the agent shown at the right
 }
 
-func load(roots []string, v view) ([]row, []*storeView, []string) {
+func load(roots []string, v view) ([]row, []*officeView, []string) {
 	filter, byPerson := v.filter, v.byPerson
 	var rows []row
-	var stores []*storeView
+	var offices []*officeView
 	var errs []string
 	live := app.Panes()
 	for _, root := range roots {
-		s, err := store.Open(root)
+		s, err := office.Open(root)
 		if err != nil {
 			errs = append(errs, root+": "+err.Error())
 			continue
@@ -142,12 +142,12 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 			errs = append(errs, root+": "+err.Error())
 			continue
 		}
-		name := s.Config.Store.Sphere
+		name := s.Config.Office.Sphere
 		if name == "" {
 			name = filepath.Base(root)
 		}
-		sv := &storeView{name: name, root: root, a: a, all: ds, live: live, byID: map[string]*dossier.Dossier{}, count: map[string]int{}}
-		stores = append(stores, sv)
+		sv := &officeView{name: name, root: root, a: a, all: ds, live: live, byID: map[string]*dossier.Dossier{}, count: map[string]int{}}
+		offices = append(offices, sv)
 		for _, d := range ds {
 			sv.byID[d.ID] = d
 			sv.count[d.State]++
@@ -162,22 +162,22 @@ func load(roots []string, v view) ([]row, []*storeView, []string) {
 		rows = append(rows, treeRows(sv, ds, live, v)...)
 	}
 	if byPerson {
-		for _, sv := range stores {
+		for _, sv := range offices {
 			rows = append(rows, deskRow(sv))
 		}
-		if waiting := waitingRows(stores, filter); len(waiting) > 0 {
+		if waiting := waitingRows(offices, filter); len(waiting) > 0 {
 			rows = append(append(rows, row{}), waiting...)
 		}
 	}
-	if v.agentsView && len(stores) > 0 {
-		rows = agentRows(stores, filter)
+	if v.agentsView && len(offices) > 0 {
+		rows = agentRows(offices, filter)
 	}
-	return rows, stores, errs
+	return rows, offices, errs
 }
 
-// waitingRows groups the waiting dossiers of every store by whom they wait on;
+// waitingRows groups the waiting dossiers of every office by whom they wait on;
 // the person to chase first comes first, and within a person the soonest date.
-func waitingRows(stores []*storeView, filter string) []row {
+func waitingRows(offices []*officeView, filter string) []row {
 	type group struct {
 		name  string
 		first string
@@ -185,7 +185,7 @@ func waitingRows(stores []*storeView, filter string) []row {
 	}
 	var groups []*group
 	byName := map[string]*group{}
-	for _, sv := range stores {
+	for _, sv := range offices {
 		for _, d := range sv.all {
 			if d.State != dossier.Waiting || !shown(d, view{filter: filter}) {
 				continue
@@ -198,7 +198,7 @@ func waitingRows(stores []*storeView, filter string) []row {
 				byName[key] = g
 				groups = append(groups, g)
 			}
-			g.rows = append(g.rows, row{store: sv, d: d, activity: app.Activity(d, sv.live), blocked: app.BlockedBy(d, sv.byID), unread: unreadOf(sv, d, app.Activity(d, sv.live))})
+			g.rows = append(g.rows, row{office: sv, d: d, activity: app.Activity(d, sv.live), blocked: app.BlockedBy(d, sv.byID), unread: unreadOf(sv, d, app.Activity(d, sv.live))})
 		}
 	}
 	for _, g := range groups {
@@ -244,7 +244,7 @@ func PersonOf(on string) string {
 // treeRows lays the shown dossiers out as a forest: a dossier appears under
 // each shown dossier that includes it, and at the top level only when no shown
 // dossier includes it.
-func treeRows(sv *storeView, ds []*dossier.Dossier, live map[string]string, v view) []row {
+func treeRows(sv *officeView, ds []*dossier.Dossier, live map[string]string, v view) []row {
 	visible := map[string]bool{}
 	for _, d := range ds {
 		if shown(d, v) {
@@ -301,7 +301,7 @@ func treeRows(sv *storeView, ds []*dossier.Dossier, live map[string]string, v vi
 	var walk func(id string, depth int, last []bool, path map[string]bool)
 	walk = func(id string, depth int, last []bool, path map[string]bool) {
 		d := idx[id]
-		out = append(out, row{store: sv, d: d, activity: app.Activity(d, live), depth: depth,
+		out = append(out, row{office: sv, d: d, activity: app.Activity(d, live), depth: depth,
 			last: append([]bool{}, last...), blocked: app.BlockedBy(d, idx), cycle: path[id], unread: unreadOf(sv, d, app.Activity(d, live))})
 		if path[id] {
 			return
@@ -404,7 +404,7 @@ var (
 	inName  = map[string]string{"includes": "included by", "depends_on": "needed by", "merged_into": "merged from"}
 )
 
-func links(sv *storeView, d *dossier.Dossier) []linked {
+func links(sv *officeView, d *dossier.Dossier) []linked {
 	var out []linked
 	pos := map[string]int{}
 	add := func(e app.Edge, names map[string]string) {
@@ -444,14 +444,14 @@ var agentsNow = app.Agents
 // unreadOf: the agent ended its turn and the user has not looked at it since,
 // as herdr tells ("done"). Every news from outside prompts the agent, so this
 // is the one sign.
-func unreadOf(sv *storeView, d *dossier.Dossier, activity string) bool {
+func unreadOf(sv *officeView, d *dossier.Dossier, activity string) bool {
 	return activity == "ready"
 }
 
 // rankActivity is the activity the priority order sees. The agent shown at
 // the right keeps its rank while you look at it: herdr marks it seen, and it
 // would otherwise drop under your eyes.
-func rankActivity(d *dossier.Dossier, live map[string]string, sv *storeView, v view) string {
+func rankActivity(d *dossier.Dossier, live map[string]string, sv *officeView, v view) string {
 	a := app.Activity(d, live)
 	if v.docked != "" && v.docked == sv.root+"|"+d.ID && a == "idle" {
 		return "ready"

@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/app"
 )
 
 func (m *model) selectedAgent() *app.AgentPane {
@@ -36,13 +36,13 @@ func (m *model) agentKey(k string, ag *app.AgentPane) (tea.Cmd, bool) {
 }
 
 func (m *model) adopt(ag *app.AgentPane) {
-	stores := make([]string, 0, len(m.stores))
-	for _, sv := range m.stores {
-		stores = append(stores, sv.name)
+	offices := make([]string, 0, len(m.offices))
+	for _, sv := range m.offices {
+		offices = append(offices, sv.name)
 	}
 	fields := []askField{{label: "title", value: ag.Title, hint: "short name of the affair"}}
-	if len(stores) > 1 {
-		fields = append(fields, askField{label: "store", hint: strings.Join(stores, " or ")})
+	if len(offices) > 1 {
+		fields = append(fields, askField{label: "office", hint: strings.Join(offices, " or ")})
 	}
 	fields = append(fields, askField{label: "in", hint: "dossier that includes it; empty: on its own"})
 	m.ask = &ask{title: "Adopt the agent in " + filepath.Base(ag.Cwd), fields: fields, done: func(v []string) tea.Cmd {
@@ -54,20 +54,20 @@ func (m *model) adopt(ag *app.AgentPane) {
 			}
 			return ""
 		}
-		root := m.stores[0].root
-		if want := get("store"); want != "" {
+		root := m.offices[0].root
+		if want := get("office"); want != "" {
 			root = ""
-			for _, sv := range m.stores {
+			for _, sv := range m.offices {
 				if strings.EqualFold(sv.name, want) {
 					root = sv.root
 				}
 			}
-		} else if len(m.stores) > 1 {
-			m.status, m.statusErr = "say which store: "+strings.Join(stores, " or "), true
+		} else if len(m.offices) > 1 {
+			m.status, m.statusErr = "say which office: "+strings.Join(offices, " or "), true
 			return nil
 		}
 		if root == "" {
-			m.status, m.statusErr = "no store named "+get("store"), true
+			m.status, m.statusErr = "no office named "+get("office"), true
 			return nil
 		}
 		args := []string{"adopt", "--pane", ag.PaneID, "--title", get("title")}

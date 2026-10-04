@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""dossier source connector for a private Telegram bot, one bot per store.
+"""office source connector for a private Telegram bot, one bot per office.
 
 A message to the bot is a signal: its first line is the dossier title, the
 whole text the instruction ("D-42: ..." goes to that dossier). A voice message
@@ -162,7 +162,7 @@ def poll(inp):
         return {"signals": [], "events": [], "cursor": json.dumps({"offset": last + 1 if last is not None else 0})}
     st = load_state(cfg)
     roots = st.setdefault("roots", {})
-    tmpdir = tempfile.mkdtemp(prefix="dossier-telegram-")
+    tmpdir = tempfile.mkdtemp(prefix="office-telegram-")
     signals, events = [], []
     for u in updates:
         offset = u["update_id"] + 1

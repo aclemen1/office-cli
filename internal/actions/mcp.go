@@ -9,11 +9,11 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // tool projects an action onto an MCP tool. Its dossier parameters default
-// to the session's own dossier; any dossier of the store can be named instead.
+// to the session's own dossier; any dossier of the office can be named instead.
 type tool struct {
 	name, action, description string
 	self                      []string          // params that default to DOSSIER_ID
@@ -24,7 +24,7 @@ type tool struct {
 
 var tools = []tool{
 	{name: "show", action: "show", self: []string{"id"}, description: "Show a dossier: state, sources, files, links, history, and the body of its fiche (instruction, notes, sections such as « À ne pas oublier »)."},
-	{name: "search", action: "search", description: "Search every dossier of the store, open or closed."},
+	{name: "search", action: "search", description: "Search every dossier of the office, open or closed."},
 	{name: "grep", action: "grep", self: []string{"id"}, rename: map[string]string{"id": "dossier"},
 		description: "Search the full conversation of a dossier, including the dossiers merged into it."},
 	{name: "tree", action: "tree", self: []string{"id"}, description: "Walk a dossier's links: what it includes, what blocks it."},
@@ -32,7 +32,7 @@ var tools = []tool{
 	{name: "resume", action: "resume", self: []string{"id"}, hide: []string{"prompt"}, description: "Bring a waiting dossier back to open."},
 	{name: "park", action: "park", self: []string{"id"}, description: "Mark a dossier as needing no action from the user for now, e.g. an item to raise at the next meeting. Anything new on it clears the mark."},
 	{name: "unpark", action: "unpark", self: []string{"id"}, description: "Mark a dossier as needing action from the user again."},
-	{name: "star", action: "star", self: []string{"id"}, description: "Star a dossier the user wants at hand: first in its store, always shown. Only when the user asks."},
+	{name: "star", action: "star", self: []string{"id"}, description: "Star a dossier the user wants at hand: first in its office, always shown. Only when the user asks."},
 	{name: "unstar", action: "unstar", self: []string{"id"}, description: "Remove a dossier's star, when the user asks."},
 	{name: "close", action: "close", self: []string{"id"}, description: "Close a dossier once the user says it is settled."},
 	{name: "delete", action: "delete", self: []string{"id"}, description: "Delete a dossier that should not exist (a test, a mistake), after the user asked: its signal is withdrawn and its directory removed. A settled affair gets close instead."},
@@ -43,10 +43,10 @@ var tools = []tool{
 	{name: "track", action: "track", self: []string{"id"},
 		description: "Attach a thread to a dossier as a source, e.g. the thread of a draft you just wrote: its replies come back there, and its star follows the dossier's state."},
 	{name: "merge", action: "merge", self: []string{"from"}, description: "Merge a dossier into another one, after the user agreed."},
-	{name: "move", action: "move", description: "Move dossiers to another store (its sphere, e.g. pro): they get a number there, links among them stay. Only when the user asked."},
+	{name: "move", action: "move", description: "Move dossiers to another office (its sphere, e.g. pro): they get a number there, links among them stay. Only when the user asked."},
 	{name: "notify", action: "notify", self: []string{"from"}, description: "Tell another dossier something: a decision, new information, a request. Its session gets it as a prompt."},
 	{name: "escalate", action: "escalate", self: []string{"id"}, dossierOnly: true,
-		description: "Escalate to the store's desk what goes beyond this dossier: a rule to adopt, a skill to change, a request for the user. The desk gets it as a prompt once its session is idle."},
+		description: "Escalate to the office's desk what goes beyond this dossier: a rule to adopt, a skill to change, a request for the user. The desk gets it as a prompt once its session is idle."},
 }
 
 // toolsFor lists the tools served to a session.
@@ -183,7 +183,7 @@ func runInProcess(action string, argv []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return a.Run(&spec.Context{Args: parsed, Store: os.Getenv("DOSSIER_STORE"), Format: "json", Stdin: strings.NewReader("")})
+	return a.Run(&spec.Context{Args: parsed, Office: os.Getenv("OFFICE_DIR"), Format: "json", Stdin: strings.NewReader("")})
 }
 
 // runInstalled runs the action with the dossier binary installed now, not the
@@ -204,13 +204,13 @@ func runInstalled(action string, argv []string) (any, error) {
 		Error  *spec.Error     `json:"error"`
 	}
 	if err := json.Unmarshal(out, &env); err != nil {
-		return nil, fmt.Errorf("dossier %s did not answer with an envelope (%v): %s", action, runErr, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("office %s did not answer with an envelope (%v): %s", action, runErr, strings.TrimSpace(string(out)))
 	}
 	if !env.OK {
 		if env.Error != nil {
 			return nil, env.Error
 		}
-		return nil, fmt.Errorf("dossier %s failed", action)
+		return nil, fmt.Errorf("office %s failed", action)
 	}
 	var result any
 	if len(env.Result) > 0 {
@@ -220,9 +220,9 @@ func runInstalled(action string, argv []string) (any, error) {
 }
 
 const (
-	mcpInstructions = "Tools of the dossier store. They act on this session's dossier by default, and on any " +
-		"dossier of the store when you name it. Close or merge only after the user said so."
-	mcpDeskInstructions = "Tools of the dossier store. This session is the store's desk, not a dossier: name the " +
+	mcpInstructions = "Tools of the office. They act on this session's dossier by default, and on any " +
+		"dossier of the office when you name it. Close or merge only after the user said so."
+	mcpDeskInstructions = "Tools of the office. This session is the office's desk, not a dossier: name the " +
 		"dossier every tool acts on. Close or merge only after the user said so."
 )
 
@@ -263,7 +263,7 @@ func serveMCP(in io.Reader, out io.Writer) error {
 			reply(map[string]any{
 				"protocolVersion": p.ProtocolVersion,
 				"capabilities":    map[string]any{"tools": map[string]any{}},
-				"serverInfo":      map[string]any{"name": "dossier", "version": Version},
+				"serverInfo":      map[string]any{"name": "office", "version": Version},
 				"instructions":    instructions,
 			})
 		case "ping":
@@ -319,8 +319,8 @@ func textResult(v any, isError bool) map[string]any {
 func init() {
 	spec.Register(&spec.Action{
 		Category: "internal", Name: "mcp", Summary: "Serve this dossier's tools over MCP (stdio), scoped to DOSSIER_ID.",
-		Discussion: "dossier passes this server to every session it starts. Tools: " + toolNames() + ".",
-		Examples:   []string{"DOSSIER_ID=D-0042 dossier mcp"},
+		Discussion: "office passes this server to every session it starts. Tools: " + toolNames() + ".",
+		Examples:   []string{"DOSSIER_ID=D-0042 office mcp"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return nil, serveMCP(os.Stdin, os.Stdout)
 		},

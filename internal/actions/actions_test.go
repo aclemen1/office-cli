@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
-	"github.com/aclemen1/dossier-cli/internal/testutil"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -22,12 +22,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// storeWith creates a store with light dossiers (no session) and points the
+// officeWith creates an office with light dossiers (no session) and points the
 // environment at it, as a dossier session would.
-func storeWith(t *testing.T, titles ...string) *app.App {
+func officeWith(t *testing.T, titles ...string) *app.App {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	s, err := store.Init(filepath.Join(t.TempDir(), "s"), "test", false)
+	s, err := office.Init(filepath.Join(t.TempDir(), "s"), "test", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func storeWith(t *testing.T, titles ...string) *app.App {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("DOSSIER_STORE", s.Root)
+	t.Setenv("OFFICE_DIR", s.Root)
 	t.Setenv("DOSSIER_ID", "D-0001")
 	return a
 }
@@ -83,10 +83,10 @@ func (c *mcpClient) call(t *testing.T, name string, args map[string]any) (map[st
 }
 
 func TestMCPListsTools(t *testing.T) {
-	storeWith(t, "Séance")
+	officeWith(t, "Séance")
 	c := startMCP(t)
 	init := c.rpc(t, "initialize", map[string]any{"protocolVersion": "2025-06-18"})["result"].(map[string]any)
-	if init["protocolVersion"] != "2025-06-18" || init["serverInfo"].(map[string]any)["name"] != "dossier" {
+	if init["protocolVersion"] != "2025-06-18" || init["serverInfo"].(map[string]any)["name"] != "office" {
 		t.Fatalf("initialize %v", init)
 	}
 	list := c.rpc(t, "tools/list", map[string]any{})["result"].(map[string]any)["tools"].([]any)
@@ -118,7 +118,7 @@ func TestMCPListsTools(t *testing.T) {
 }
 
 func TestMCPToolsDefaultToTheCurrentDossier(t *testing.T) {
-	a := storeWith(t, "Séance", "Armoire", "Autre")
+	a := officeWith(t, "Séance", "Armoire", "Autre")
 	c := startMCP(t)
 	c.rpc(t, "initialize", map[string]any{})
 
@@ -186,7 +186,7 @@ func TestSkillInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(p)
-	if !strings.HasPrefix(string(b), "---\nname: dossier") {
+	if !strings.HasPrefix(string(b), "---\nname: office") {
 		t.Fatalf("skill %q", b)
 	}
 	if _, err := installSkill("cursor", ""); err == nil {
@@ -194,7 +194,7 @@ func TestSkillInstall(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if p, _ := installSkill("claude-code", ""); p != filepath.Join(home, ".claude", "skills", "dossier", "SKILL.md") {
+	if p, _ := installSkill("claude-code", ""); p != filepath.Join(home, ".claude", "skills", "office", "SKILL.md") {
 		t.Fatalf("default path %s", p)
 	}
 }
@@ -208,7 +208,7 @@ func TestEveryActionHasExamplesAndSummary(t *testing.T) {
 }
 
 func TestMCPLinksFromAnyDossier(t *testing.T) {
-	a := storeWith(t, "Limite de connexions", "Autre", "Accord")
+	a := officeWith(t, "Limite de connexions", "Autre", "Accord")
 	c := startMCP(t)
 	c.rpc(t, "initialize", map[string]any{})
 	if env, isErr := c.call(t, "open", map[string]any{"title": "Touch Base CI", "no-start": true}); isErr {
@@ -225,12 +225,12 @@ func TestMCPLinksFromAnyDossier(t *testing.T) {
 		t.Fatalf("link from self: %v", env)
 	}
 	if env, isErr := c.call(t, "link", map[string]any{"from": "D-0002", "to": "D-0003", "rel": "includes"}); isErr {
-		t.Fatalf("link from any dossier of the store: %v", env)
+		t.Fatalf("link from any dossier of the office: %v", env)
 	}
 }
 
 func TestMCPWaitUsesTheDefaultDelayAndNotifyWakes(t *testing.T) {
-	a := storeWith(t, "Séance", "Point")
+	a := officeWith(t, "Séance", "Point")
 	c := startMCP(t)
 	c.rpc(t, "initialize", map[string]any{})
 	if env, isErr := c.call(t, "wait", map[string]any{"on": "JMR"}); isErr {
@@ -257,7 +257,7 @@ func TestMCPWaitUsesTheDefaultDelayAndNotifyWakes(t *testing.T) {
 }
 
 func TestMCPWaitsAndResumesAnotherDossier(t *testing.T) {
-	a := storeWith(t, "Séance PSEC", "Audit des accès S3", "Autre")
+	a := officeWith(t, "Séance PSEC", "Audit des accès S3", "Autre")
 	a.Link("1", "2", "includes")
 	c := startMCP(t)
 	c.rpc(t, "initialize", map[string]any{})
@@ -278,12 +278,12 @@ func TestMCPWaitsAndResumesAnotherDossier(t *testing.T) {
 		t.Fatalf("resume an included dossier: %v", env)
 	}
 	if env, isErr := c.call(t, "wait", map[string]any{"id": "D-0003", "on": "X"}); isErr {
-		t.Fatalf("wait on any dossier of the store: %v", env)
+		t.Fatalf("wait on any dossier of the office: %v", env)
 	}
 }
 
 func TestMCPEscalatesToTheDesk(t *testing.T) {
-	a := storeWith(t, "Citations")
+	a := officeWith(t, "Citations")
 	c := startMCP(t)
 	c.rpc(t, "initialize", map[string]any{})
 	env, isErr := c.call(t, "escalate", map[string]any{"text": "Règle des citations"})

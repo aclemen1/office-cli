@@ -3,7 +3,7 @@ package tui
 import (
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 // Priority ranks, most urgent first.

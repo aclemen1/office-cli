@@ -63,7 +63,7 @@ var passEnv = []string{"HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "PATH", "TMP
 
 func Start(o Options) (*Client, error) {
 	if len(o.Command) == 0 {
-		return nil, fmt.Errorf("[acp] command is empty in the store config")
+		return nil, fmt.Errorf("[acp] command is empty in the office config")
 	}
 	argv := append([]string{}, o.Command...)
 	if len(o.AgentArgs) > 0 {

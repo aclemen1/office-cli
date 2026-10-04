@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // AgentPane is a Claude Code agent running in a herdr pane.
@@ -150,7 +150,7 @@ func (a *App) takeOver(d *dossier.Dossier) error {
 				break
 			}
 			if time.Now().After(deadline) {
-				return fmt.Errorf("%s: the agent in pane %s did not exit; end it, then `dossier restart %s`", d.Label(), d.Run.PaneID, d.ID)
+				return fmt.Errorf("%s: the agent in pane %s did not exit; end it, then `office restart %s`", d.Label(), d.Run.PaneID, d.ID)
 			}
 			time.Sleep(time.Second)
 		}

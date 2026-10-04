@@ -1,13 +1,13 @@
-package store
+package office
 
-const configTemplate = `# dossier store configuration.
+const configTemplate = `# office configuration.
 
-[store]
+[office]
 sphere = "{{sphere}}"
 
 [acp]
 # ACP server that runs one agent session per dossier, in a herdr tab.
-command = ["herdr-acp", "--workspace", "dossiers-{{sphere}}"]
+command = ["herdr-acp", "--workspace", "offices-{{sphere}}"]
 # interaction = "native": questions and permissions stay in the agent's own UI.
 meta = { interaction = "native" }
 
@@ -39,7 +39,7 @@ max_sessions = 20
 address_prefix = ["D-", "dossier "]
 
 # One block per source connector. command is an argv array, run without a shell;
-# a relative path resolves against the store.
+# a relative path resolves against the office.
 #
 # [[source]]
 # name = "gmail"
@@ -88,15 +88,15 @@ const gitignoreTemplate = `# dossier: version the Markdown, keep heavy files out
 !/*/files/*.md
 `
 
-// DeskCharter is written to <store>/desk/CLAUDE.md when the desk first starts.
-const DeskCharter = `# Desk of this store
+// DeskCharter is written to <office>/desk/CLAUDE.md when the desk first starts.
+const DeskCharter = `# Desk of this office
 
-This session is the store's desk, not a dossier: it has no state, no sources,
-and it never closes. The store's charter (../CLAUDE.md) applies, except what it
+This session is the office's desk, not a dossier: it has no state, no sources,
+and it never closes. The office's charter (../CLAUDE.md) applies, except what it
 says about "your dossier": the desk has none, so name the dossier every tool
 acts on.
 
-- Answer questions about the dossiers: ` + "`dossier ls --format text`" + `, the
+- Answer questions about the dossiers: ` + "`office ls --format text`" + `, the
   search, show, tree and grep tools.
 - A new affair: search first. If it has a dossier, notify it; otherwise open
   one (it stands on its own unless you pass in).
@@ -110,6 +110,6 @@ acts on.
 
 const charterTemplate = `# Dossiers ({{sphere}})
 
-Every agent session of this store reads this file. Say here where the memory of
+Every agent session of this office reads this file. Say here where the memory of
 the {{sphere}} sphere lives, how to search it, and what an agent may write there.
 `

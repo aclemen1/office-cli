@@ -14,17 +14,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/acp"
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/acp"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
-type App struct{ S *store.Store }
+type App struct{ S *office.Office }
 
-func New(storeFlag string) (*App, error) {
-	s, err := store.Resolve(storeFlag)
+func New(officeFlag string) (*App, error) {
+	s, err := office.Resolve(officeFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func (a *App) Load(id string) (*dossier.Dossier, error) {
 		id = os.Getenv("DOSSIER_ID")
 	}
 	if id == "" {
-		return nil, spec.UserError("no dossier id given and DOSSIER_ID is not set. Pass one, for example `dossier show D-0042`")
+		return nil, spec.UserError("no dossier id given and DOSSIER_ID is not set. Pass one, for example `office show D-0042`")
 	}
 	if a.isDesk(id) {
 		return nil, a.deskError()
@@ -54,7 +54,7 @@ func (a *App) Load(id string) (*dossier.Dossier, error) {
 
 var aliasRe = regexp.MustCompile(`^[A-Z][A-Z0-9-]{0,15}$`)
 
-// NormalizeAlias uppercases an alias and drops the store prefix: "u-rdir" → "RDIR".
+// NormalizeAlias uppercases an alias and drops the office prefix: "u-rdir" → "RDIR".
 func (a *App) NormalizeAlias(s string) string {
 	s = strings.ToUpper(strings.TrimSpace(s))
 	return strings.TrimPrefix(s, a.S.Prefix()+"-")
@@ -76,7 +76,7 @@ func (a *App) byAlias(id string) *dossier.Dossier {
 	return nil
 }
 
-// SetAlias names a dossier. An alias is unique in the store; "" removes it.
+// SetAlias names a dossier. An alias is unique in the office; "" removes it.
 func (a *App) SetAlias(d *dossier.Dossier, alias string) error {
 	alias = a.NormalizeAlias(alias)
 	if alias != "" {
@@ -84,7 +84,7 @@ func (a *App) SetAlias(d *dossier.Dossier, alias string) error {
 			return spec.UserError("alias %q must start with a letter and hold up to 16 letters, digits or dashes, e.g. RDIR", alias)
 		}
 		if alias == "DESK" {
-			return spec.UserError("alias DESK names the store's desk; choose another")
+			return spec.UserError("alias DESK names the office's desk; choose another")
 		}
 		if other := a.byAlias(alias); other != nil && other.ID != d.ID {
 			return spec.UserError("alias %s is already %s (%s)", alias, other.ID, other.Title)
@@ -229,7 +229,7 @@ func (a *App) includeIn(holder, id string) error {
 
 func (a *App) open(p OpenParams) (OpenResult, error) {
 	if strings.TrimSpace(p.Title) == "" {
-		return OpenResult{}, spec.UserError("a dossier needs a title. Example: dossier open --title \"Armoire de pharmacie\" --instruction \"Demander une date de passage\"")
+		return OpenResult{}, spec.UserError("a dossier needs a title. Example: office open --title \"Armoire de pharmacie\" --instruction \"Demander une date de passage\"")
 	}
 	if p.SourceRef != "" {
 		if d := a.FindBySource(p.SourceRef); d != nil {
@@ -268,7 +268,7 @@ func (a *App) open(p OpenParams) (OpenResult, error) {
 			return OpenResult{}, spec.UserError("alias %q must start with a letter and hold up to 16 letters, digits or dashes, e.g. RDIR", p.Alias)
 		}
 		if alias == "DESK" {
-			return OpenResult{}, spec.UserError("alias DESK names the store's desk; choose another")
+			return OpenResult{}, spec.UserError("alias DESK names the office's desk; choose another")
 		}
 		if other := a.byAlias(alias); other != nil {
 			return OpenResult{}, spec.UserError("alias %s is already %s (%s)", alias, other.ID, other.Title)
@@ -311,7 +311,7 @@ func (a *App) open(p OpenParams) (OpenResult, error) {
 		return res, d.Save()
 	}
 	if err := a.sendPrompt(d, text); err != nil {
-		return res, fmt.Errorf("dossier %s created in %s, but its session did not start: %w. Retry with `dossier attach %s`", id, dir, err, id)
+		return res, fmt.Errorf("dossier %s created in %s, but its session did not start: %w. Retry with `office attach %s`", id, dir, err, id)
 	}
 	res.Session, res.TabID, res.Started = d.Run.Session, d.Run.TabID, true
 	return res, nil
@@ -371,7 +371,7 @@ func (a *App) event(d *dossier.Dossier, note string, summary map[string]any, fil
 
 var unsafeName = regexp.MustCompile(`[^\w.\-]+`)
 
-// writeContext stores connector files under context/, one number per batch.
+// writeContext offices connector files under context/, one number per batch.
 // Markdown files of the batch that point at a sibling ("./name") are rewritten
 // to the numbered name.
 func (a *App) writeContext(d *dossier.Dossier, files []connector.File) ([]string, error) {
@@ -456,7 +456,7 @@ func (a *App) renderPrompt(d *dossier.Dossier, kind, instruction string, summary
 	}
 	d.Run.Prompts++
 	name := fmt.Sprintf("%04d-%s.md", d.Run.Prompts, kind)
-	fm := fmt.Sprintf("---\ntype: Prompt\ntitle: %s prompt %d of %s\ngenerated: { by: \"process:dossier\", at: %q }\n---\n", kind, d.Run.Prompts, d.ID, dossier.Now())
+	fm := fmt.Sprintf("---\ntype: Prompt\ntitle: %s prompt %d of %s\ngenerated: { by: \"process:office\", at: %q }\n---\n", kind, d.Run.Prompts, d.ID, dossier.Now())
 	if err := os.WriteFile(d.Path("prompts", name), []byte(fm+text), 0o644); err != nil {
 		return "", err
 	}
@@ -484,31 +484,31 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 	addDirs := append([]string{}, cfg.Agent.AddDirs...)
 	cwd := d.Dir
 	if d.Run.Cwd != "" {
-		// An adopted conversation lives under its own directory; the store's
+		// An adopted conversation lives under its own directory; the office's
 		// charter reaches it as an added directory.
 		cwd = d.Run.Cwd
 		addDirs = append(addDirs, a.S.Root)
 	}
 	for _, dir := range addDirs {
-		args = append(args, "--add-dir", store.ExpandHome(dir))
+		args = append(args, "--add-dir", office.ExpandHome(dir))
 	}
 	if cfg.Agent.RemoteControl {
 		args = append(args, "--remote-control", d.Label()+" · "+d.Title)
 	}
 	env := map[string]string{}
 	for k, v := range cfg.ACP.Env {
-		env[k] = store.ExpandHome(v)
+		env[k] = office.ExpandHome(v)
 	}
 	if len(addDirs) > 0 {
 		env["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"] = "1"
 	}
 	env["DOSSIER_ID"] = d.ID
-	env["DOSSIER_STORE"] = a.S.Root
+	env["OFFICE_DIR"] = a.S.Root
 	cmd := append([]string{}, cfg.ACP.Command...)
 	if len(cmd) > 0 {
-		cmd[0] = store.ExpandHome(cmd[0])
+		cmd[0] = office.ExpandHome(cmd[0])
 		for i := 1; i < len(cmd); i++ {
-			cmd[i] = store.ExpandHome(cmd[i])
+			cmd[i] = office.ExpandHome(cmd[i])
 		}
 	}
 	exe, err := os.Executable()
@@ -516,8 +516,8 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 		return nil, err
 	}
 	exe, _ = filepath.EvalSymlinks(exe)
-	mcp := []acp.MCPServer{{Name: "dossier", Command: exe, Args: []string{"mcp"},
-		Env: []acp.EnvEntry{{Name: "DOSSIER_ID", Value: d.ID}, {Name: "DOSSIER_STORE", Value: a.S.Root}}}}
+	mcp := []acp.MCPServer{{Name: "office", Command: exe, Args: []string{"mcp"},
+		Env: []acp.EnvEntry{{Name: "DOSSIER_ID", Value: d.ID}, {Name: "OFFICE_DIR", Value: a.S.Root}}}}
 	meta := map[string]any{}
 	for k, v := range cfg.ACP.Meta {
 		meta[k] = v
@@ -663,7 +663,7 @@ func (a *App) resume(d *dossier.Dossier) error {
 	return nil
 }
 
-// SessionsReport counts the store's sessions running in a tab and names the
+// SessionsReport counts the office's sessions running in a tab and names the
 // open dossiers whose session has none.
 type SessionsReport struct {
 	Running int      `json:"running"`
@@ -767,14 +767,14 @@ func (a *App) Prompt(d *dossier.Dossier, text string) error {
 	return a.sendPrompt(d, text)
 }
 
-// closeTabLater starts a detached `dossier internal-closetab` that waits, then
+// closeTabLater starts a detached `office internal-closetab` that waits, then
 // closes the session's tab.
 func (a *App) closeTabLater(d *dossier.Dossier, delay time.Duration) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "closetab", d.ID, "--store", a.S.Root, "--delay", delay.String())
+	cmd := exec.Command(exe, "closetab", d.ID, "--office", a.S.Root, "--delay", delay.String())
 	cmd.Env = os.Environ()
 	for i, kv := range cmd.Env {
 		if strings.HasPrefix(kv, "DOSSIER_ID=") {
@@ -792,7 +792,7 @@ func (a *App) closeTabLater(d *dossier.Dossier, delay time.Duration) error {
 // agent gets a fresh process: current binary, MCP server and environment.
 func (a *App) Restart(d *dossier.Dossier) error {
 	if d.Run.Session == "" {
-		return spec.UserError("%s has no session yet. Start one with `dossier attach %s`", d.ID, d.ID)
+		return spec.UserError("%s has no session yet. Start one with `office attach %s`", d.ID, d.ID)
 	}
 	if d.Run.Adopted && paneAlive(d.Run.PaneID) {
 		return a.takeOver(d)
@@ -820,7 +820,7 @@ func (a *App) Restart(d *dossier.Dossier) error {
 		}
 		if attempt == 2 {
 			_ = d.Save()
-			return fmt.Errorf("%w. The session is closed but intact: resume it with `dossier attach %s`", err, d.ID)
+			return fmt.Errorf("%w. The session is closed but intact: resume it with `office attach %s`", err, d.ID)
 		}
 		time.Sleep(3 * time.Second)
 	}
@@ -841,7 +841,7 @@ func (a *App) Track(id, ref string) (map[string]any, error) {
 		return nil, spec.UserError("%q is not a source reference. Use <source>:<kind>/<id>, e.g. gmail:thread/1a0d7b2f4c0fff93", ref)
 	}
 	if _, ok := a.S.Config.Source(name); !ok {
-		return nil, spec.UserError("no [[source]] named %q in this store; declared: %s", name, sourceNames(a.S.Config.Sources))
+		return nil, spec.UserError("no [[source]] named %q in this office; declared: %s", name, sourceNames(a.S.Config.Sources))
 	}
 	if other := a.FindBySource(ref); other != nil && other.ID != d.ID {
 		return nil, spec.UserError("%s already belongs to %s. Merge the dossiers instead: merge %s into %s", ref, other.ID, d.ID, other.ID)
@@ -964,7 +964,7 @@ func transcriptOf(session string) string {
 	if session == "" {
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(store.ExpandHome("~/.claude/projects"), "*", session+".jsonl"))
+	matches, _ := filepath.Glob(filepath.Join(office.ExpandHome("~/.claude/projects"), "*", session+".jsonl"))
 	if len(matches) == 0 {
 		return ""
 	}

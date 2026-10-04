@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
 const Protocol = 1
@@ -57,34 +57,34 @@ type Description struct {
 }
 
 type Runner struct {
-	Store  *store.Store
-	Source store.SourceConfig
+	Office *office.Office
+	Source office.SourceConfig
 }
 
 func (r Runner) run(verb string, input any, out any) error {
 	src := r.Source
 	if len(src.Command) == 0 {
-		return fmt.Errorf("source %q has no command in %s", src.Name, r.Store.Meta("config.toml"))
+		return fmt.Errorf("source %q has no command in %s", src.Name, r.Office.Meta("config.toml"))
 	}
 	argv := append([]string{}, src.Command...)
 	for i := range argv {
-		argv[i] = store.ExpandHome(argv[i])
+		argv[i] = office.ExpandHome(argv[i])
 	}
 	for i, a := range argv {
 		if i > 0 && !filepath.IsAbs(a) && !strings.HasPrefix(a, "-") {
-			if p := filepath.Join(r.Store.Root, a); fileExists(p) {
+			if p := filepath.Join(r.Office.Root, a); fileExists(p) {
 				argv[i] = p
 			}
 		}
 	}
-	if p := filepath.Join(r.Store.Root, argv[0]); !filepath.IsAbs(argv[0]) && strings.Contains(argv[0], "/") && fileExists(p) {
+	if p := filepath.Join(r.Office.Root, argv[0]); !filepath.IsAbs(argv[0]) && strings.Contains(argv[0], "/") && fileExists(p) {
 		argv[0] = p
 	}
 	argv = append(argv, verb)
 	ctx, cancel := context.WithTimeout(context.Background(), src.TimeoutDuration())
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = r.Store.Root
+	cmd.Dir = r.Office.Root
 	env := []string{}
 	for _, k := range []string{"HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "PATH", "TMPDIR"} {
 		if v, ok := os.LookupEnv(k); ok {
@@ -92,7 +92,7 @@ func (r Runner) run(verb string, input any, out any) error {
 		}
 	}
 	for k, v := range src.Env {
-		env = append(env, k+"="+store.ExpandHome(v))
+		env = append(env, k+"="+office.ExpandHome(v))
 	}
 	cmd.Env = env
 	in, _ := json.Marshal(input)
@@ -189,9 +189,9 @@ func (r Runner) Opened(sourceRef, threadRef, outcome string, d Dossier) error {
 	}, &out)
 }
 
-// Claim tells the connector that the item now belongs to its store, after a
+// Claim tells the connector that the item now belongs to its office, after a
 // dossier moved there: it makes the item pass its own filter (a reminder gets
-// the store's tag). Optional verb: call it only when describe lists "claim".
+// the office's tag). Optional verb: call it only when describe lists "claim".
 func (r Runner) Claim(sourceRef string) (string, error) {
 	var out struct {
 		OK     bool   `json:"ok"`

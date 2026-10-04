@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/aclemen1/dossier-cli/internal/app"
+import "github.com/aclemen1/office-cli/internal/app"
 
 func init() {
 	agentsNow = func() []app.AgentPane { return nil }

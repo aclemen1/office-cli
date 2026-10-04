@@ -10,18 +10,18 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
 // RunPlaceholder fills the pane that docked agents take the place of: it
-// says what the pane is, the time, and where the stores stand. While an agent
+// says what the pane is, the time, and where the offices stand. While an agent
 // holds its place, it names that agent: enter or a click jumps to it, u gives
 // the place back.
 // With a tui pane, it closes its own pane and stops once that pane is gone.
 func RunPlaceholder(root, tui string) error {
-	roots := store.Discover(root)
+	roots := office.Discover(root)
 	p := &placeholder{roots: roots, stamps: stampsOf(roots), self: os.Getenv("HERDR_PANE_ID"), tui: tui}
 	_, err := tea.NewProgram(p).Run()
 	return err
@@ -109,7 +109,7 @@ func (p *placeholder) giveBack() {
 		return
 	}
 	h := p.holder
-	if out, err := exec.Command(dossierBin(), "undock", h.d.ID, "--placeholder", p.self, "--store", h.root, "--format", "text").CombinedOutput(); err != nil {
+	if out, err := exec.Command(dossierBin(), "undock", h.d.ID, "--placeholder", p.self, "--office", h.root, "--format", "text").CombinedOutput(); err != nil {
 		p.note = firstLine(string(out), err.Error())
 		return
 	}
@@ -119,14 +119,14 @@ func (p *placeholder) giveBack() {
 	}
 }
 
-// refresh reads the stores at most every refreshEvery.
+// refresh reads the offices at most every refreshEvery.
 func (p *placeholder) refresh() {
 	if time.Since(p.counted) < refreshEvery && p.lines != nil {
 		return
 	}
 	p.counted, p.lines, p.holder = time.Now(), []string{}, nil
 	for _, root := range p.roots {
-		s, err := store.Open(root)
+		s, err := office.Open(root)
 		if err != nil {
 			continue
 		}
@@ -143,7 +143,7 @@ func (p *placeholder) refresh() {
 				waiting++
 			}
 		}
-		p.lines = append(p.lines, sBold.Render(s.Config.Store.Sphere)+"  "+
+		p.lines = append(p.lines, sBold.Render(s.Config.Office.Sphere)+"  "+
 			stateStyle(dossier.Open).Render(fmt.Sprintf("%d to do", todo))+sMuted.Render("  ·  ")+
 			stateStyle(dossier.Waiting).Render(fmt.Sprintf("%d waiting", waiting)))
 	}
@@ -158,7 +158,7 @@ func (p *placeholder) render() string {
 	p.refresh()
 	t := p.now
 	body := []string{
-		sTitle.Render("dossier · placeholder"),
+		sTitle.Render("office · placeholder"),
 		"",
 		sBold.Render(t.Format("15:04")) + sMuted.Render(t.Format(":05")),
 		sMuted.Render(weekdays[t.Weekday()] + " " + t.Format("02.01.2006")),
@@ -183,8 +183,8 @@ func (p *placeholder) render() string {
 
 var weekdays = strings.Fields("Sunday Monday Tuesday Wednesday Thursday Friday Saturday")
 
-// watch rereads the stores at once when an agent docks or undocks: dossier
-// touches each store's dock.stamp then.
+// watch rereads the offices at once when an agent docks or undocks: office
+// touches each office's dock.stamp then.
 func (p *placeholder) watch() {
 	for _, path := range p.stamps {
 		if fi, err := os.Stat(path); err == nil && fi.ModTime().After(p.stamp) {
@@ -196,7 +196,7 @@ func (p *placeholder) watch() {
 func stampsOf(roots []string) []string {
 	var out []string
 	for _, root := range roots {
-		if s, err := store.Open(root); err == nil {
+		if s, err := office.Open(root); err == nil {
 			out = append(out, (&app.App{S: s}).DockStamp())
 		}
 	}
@@ -218,7 +218,7 @@ func (p *placeholder) leave() tea.Cmd {
 	p.counted = time.Time{}
 	p.refresh()
 	if h := p.holder; h != nil {
-		_ = exec.Command(dossierBin(), "undock", h.d.ID, "--placeholder", p.self, "--store", h.root, "--format", "text").Run()
+		_ = exec.Command(dossierBin(), "undock", h.d.ID, "--placeholder", p.self, "--office", h.root, "--format", "text").Run()
 	}
 	if p.self != "" {
 		_ = exec.Command("herdr", "pane", "close", p.self).Run()

@@ -10,8 +10,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 // Side mode keeps a placeholder pane at the TUI's right; enter puts the
@@ -64,7 +64,7 @@ func (m *model) leaveSide() tea.Cmd {
 	m.docked, m.placeholder = docked{}, ""
 	return func() tea.Msg {
 		if prev.id != "" {
-			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").Run()
+			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--office", prev.root, "--format", "text").Run()
 		}
 		if placeholder != "" {
 			_ = exec.Command("herdr", "pane", "close", placeholder).Run()
@@ -79,7 +79,7 @@ func (m *model) dock(r *row, focus bool) tea.Cmd {
 	// One dock at a time: keys pressed meanwhile come down to the last one,
 	// which runs when the current one is done.
 	if m.docking {
-		m.wantDock, m.wantFocus = &docked{r.store.root, r.d.ID}, focus
+		m.wantDock, m.wantFocus = &docked{r.office.root, r.d.ID}, focus
 		m.status, m.statusErr = r.d.Label()+": next, once the current dock is done", false
 		return nil
 	}
@@ -88,10 +88,10 @@ func (m *model) dock(r *row, focus bool) tea.Cmd {
 	if !focus {
 		args = append(args, "--no-focus")
 	}
-	prev, next, placeholder := m.docked, docked{r.store.root, r.d.ID}, m.placeholder
+	prev, next, placeholder := m.docked, docked{r.office.root, r.d.ID}, m.placeholder
 	if prev == next {
 		return func() tea.Msg {
-			out, err := exec.Command(dossierBin(), append(append([]string{"dock", next.id}, args...), "--store", next.root, "--format", "text")...).CombinedOutput()
+			out, err := exec.Command(dossierBin(), append(append([]string{"dock", next.id}, args...), "--office", next.root, "--format", "text")...).CombinedOutput()
 			return doneMsg{id: next.id, verb: "dock", out: strings.TrimSpace(string(out)), err: err}
 		}
 	}
@@ -103,11 +103,11 @@ func (m *model) dock(r *row, focus bool) tea.Cmd {
 	m.status, m.statusErr = r.d.Label()+": docking its agent…", false
 	return func() tea.Msg {
 		if prev.id != "" {
-			if out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").CombinedOutput(); err != nil {
+			if out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--office", prev.root, "--format", "text").CombinedOutput(); err != nil {
 				return doneMsg{id: prev.id, verb: "undock", out: strings.TrimSpace(string(out)), err: err}
 			}
 		}
-		out, err := exec.Command(dossierBin(), append(append([]string{"dock", next.id}, args...), "--store", next.root, "--format", "text")...).CombinedOutput()
+		out, err := exec.Command(dossierBin(), append(append([]string{"dock", next.id}, args...), "--office", next.root, "--format", "text")...).CombinedOutput()
 		return doneMsg{id: next.id, verb: "dock", out: strings.TrimSpace(string(out)), err: err}
 	}
 }
@@ -158,7 +158,7 @@ func (m *model) heal() tea.Cmd {
 		return nil
 	}
 	for _, r := range m.rows {
-		if r.d == nil || r.store.root != m.docked.root || r.d.ID != m.docked.id {
+		if r.d == nil || r.office.root != m.docked.root || r.d.ID != m.docked.id {
 			continue
 		}
 		if r.activity != "stopped" && r.activity != "none" {
@@ -169,7 +169,7 @@ func (m *model) heal() tea.Cmd {
 		tui, tab := os.Getenv("HERDR_PANE_ID"), os.Getenv("HERDR_TAB_ID")
 		ratio := m.ratio()
 		return func() tea.Msg {
-			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").Run()
+			_ = exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--office", prev.root, "--format", "text").Run()
 			_ = exec.Command("herdr", "pane", "move", placeholder, "--tab", tab, "--split", "right", "--target-pane", tui, "--ratio", ratio, "--no-focus").Run()
 			return nil
 		}
@@ -189,7 +189,7 @@ func (m *model) sendHome() tea.Cmd {
 	m.docking = true
 	m.status, m.statusErr = prev.id+": sending its agent home…", false
 	return func() tea.Msg {
-		out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--store", prev.root, "--format", "text").CombinedOutput()
+		out, err := exec.Command(dossierBin(), "undock", prev.id, "--placeholder", placeholder, "--office", prev.root, "--format", "text").CombinedOutput()
 		return doneMsg{id: prev.id, verb: "undock", out: strings.TrimSpace(string(out)), err: err}
 	}
 }
@@ -255,14 +255,14 @@ func (m *model) dockDone() tea.Cmd {
 	return nil
 }
 
-// syncDocked reads which agent holds the placeholder's place from the stores:
+// syncDocked reads which agent holds the placeholder's place from the offices:
 // the TUI's own idea can lag behind docks run by others or that failed.
 func (m *model) syncDocked() {
 	if !m.side || m.placeholder == "" || m.docking {
 		return
 	}
 	m.docked = docked{}
-	for _, sv := range m.stores {
+	for _, sv := range m.offices {
 		for _, d := range append(append([]*dossier.Dossier{}, sv.all...), sv.a.Desk()) {
 			if d.Run.Home != "" && d.Run.Placeholder == m.placeholder {
 				m.docked = docked{sv.root, d.ID}

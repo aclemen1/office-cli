@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
 )
 
 func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, err := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, err := office.Init(filepath.Join(root, "pro"), "pro", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +34,10 @@ func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 	if err := b.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.Discover(root); len(got) != 1 {
-		t.Fatalf("stores %v", got)
+	if got := office.Discover(root); len(got) != 1 {
+		t.Fatalf("offices %v", got)
 	}
-	rows, _, errs := load(store.Discover(root), view{})
+	rows, _, errs := load(office.Discover(root), view{})
 	if len(errs) > 0 {
 		t.Fatal(errs)
 	}
@@ -57,7 +57,7 @@ func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 	if strings.Join(got, ",") != want {
 		t.Fatalf("rows\n got %s\nwant %s", strings.Join(got, ","), want)
 	}
-	if rows, _, _ := load(store.Discover(root), view{filter: "seul"}); len(rows) != 2 || rows[1].d.Title != "Seul" {
+	if rows, _, _ := load(office.Discover(root), view{filter: "seul"}); len(rows) != 2 || rows[1].d.Title != "Seul" {
 		t.Fatalf("filter: %+v", rows)
 	}
 }
@@ -65,18 +65,18 @@ func TestTreeNestsIncludedDossiersAndSurvivesCycles(t *testing.T) {
 func TestLinksGroupEveryRelationOfALinkedDossier(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	a.Open(app.OpenParams{Title: "Séance", NoStart: true})
 	a.Open(app.OpenParams{Title: "Point", NoStart: true})
 	a.Link("1", "2", dossier.RelIncludes)
 	a.Link("1", "2", dossier.RelDependsOn)
-	rows, _, _ := load(store.Discover(root), view{})
-	ls := links(rows[1].store, rows[1].d)
+	rows, _, _ := load(office.Discover(root), view{})
+	ls := links(rows[1].office, rows[1].d)
 	if len(ls) != 1 || ls[0].id != "D-0002" || strings.Join(ls[0].rels, ",") != "includes,depends on" {
 		t.Fatalf("séance links %+v", ls)
 	}
-	ls = links(rows[2].store, rows[2].d)
+	ls = links(rows[2].office, rows[2].d)
 	if len(ls) != 1 || strings.Join(ls[0].rels, ",") != "included by,needed by" {
 		t.Fatalf("point links %+v", ls)
 	}
@@ -85,7 +85,7 @@ func TestLinksGroupEveryRelationOfALinkedDossier(t *testing.T) {
 func TestWaitingRowsGroupByPersonSoonestFirst(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	for i, w := range [][2]string{{"Livit (service@livit.ch)", "2026-12-01"}, {"Patricia", "2026-11-01"}, {"livit", "2026-10-15"}} {
 		a.Open(app.OpenParams{Title: w[0], NoStart: true})
@@ -95,7 +95,7 @@ func TestWaitingRowsGroupByPersonSoonestFirst(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rows, _, _ := load(store.Discover(root), view{byPerson: true})
+	rows, _, _ := load(office.Discover(root), view{byPerson: true})
 	var got []string
 	for _, r := range rows {
 		switch {
@@ -113,7 +113,7 @@ func TestWaitingRowsGroupByPersonSoonestFirst(t *testing.T) {
 func TestPriorityRaisesAMeetingWhosePointIsDue(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	a.Open(app.OpenParams{Title: "Ouvert", NoStart: true})
 	a.Open(app.OpenParams{Title: "Plus tard", NoStart: true})
@@ -126,7 +126,7 @@ func TestPriorityRaisesAMeetingWhosePointIsDue(t *testing.T) {
 		a.SetState(d, "wait", "", "Patricia")
 	}
 	order := func(v view) string {
-		rows, _, _ := load(store.Discover(root), v)
+		rows, _, _ := load(office.Discover(root), v)
 		var got []string
 		for _, r := range rows {
 			if r.d != nil && !r.desk {
@@ -152,18 +152,18 @@ func TestANoActionDossierComesAfterOpenOnes(t *testing.T) {
 	}
 }
 
-func TestBMovesToTheDeskOfTheSelectedStore(t *testing.T) {
+func TestBMovesToTheDeskOfTheSelectedOffice(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	for _, sphere := range []string{"perso", "pro"} {
-		s, _ := store.Init(filepath.Join(root, sphere), sphere, false)
+		s, _ := office.Init(filepath.Join(root, sphere), sphere, false)
 		(&app.App{S: s}).Open(app.OpenParams{Title: "Affaire " + sphere, NoStart: true})
 	}
-	m := &model{roots: store.Discover(root)}
+	m := &model{roots: office.Discover(root)}
 	m.reload()
 	m.cursor = len(m.rows) - 1
 	m.key("b")
-	if r := m.selected(); r == nil || !r.desk || r.store.name != "pro" {
+	if r := m.selected(); r == nil || !r.desk || r.office.name != "pro" {
 		t.Fatalf("selected %+v", r)
 	}
 	if m.key("x"); m.status == "" || !m.statusErr {
@@ -171,10 +171,10 @@ func TestBMovesToTheDeskOfTheSelectedStore(t *testing.T) {
 	}
 }
 
-func TestAgentsWithoutDossierFollowTheStores(t *testing.T) {
+func TestAgentsWithoutDossierFollowTheOffices(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	a.Open(app.OpenParams{Title: "Affaire", NoStart: true})
 	d, _ := a.Load("1")
@@ -185,7 +185,7 @@ func TestAgentsWithoutDossierFollowTheStores(t *testing.T) {
 	agentsNow = func() []app.AgentPane {
 		return []app.AgentPane{{PaneID: "w1:p1", Session: "held", Title: "Déjà un dossier"}, {PaneID: "w1:p2", Session: "free", Title: "Libre", Cwd: "/code/smtp-bridge"}}
 	}
-	m := &model{roots: store.Discover(root)}
+	m := &model{roots: office.Discover(root)}
 	m.reload()
 	for _, r := range m.rows {
 		if r.agent != nil {
@@ -218,13 +218,13 @@ func TestAgentsWithoutDossierFollowTheStores(t *testing.T) {
 func TestGmailKeysAndGSequences(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	a.Open(app.OpenParams{Title: "Ouvert", NoStart: true})
 	a.Open(app.OpenParams{Title: "Calme", NoStart: true})
 	d, _ := a.Load("2")
 	a.Park(d, "")
-	m := &model{roots: store.Discover(root)}
+	m := &model{roots: office.Discover(root)}
 	m.reload()
 	m.key("G")
 	m.key("g")
@@ -265,9 +265,9 @@ func TestHSendsTheDockedAgentHome(t *testing.T) {
 func TestThePlaceholderRereadsAtOnceWhenAnAgentDocks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
-	roots := store.Discover(root)
+	roots := office.Discover(root)
 	p := &placeholder{roots: roots, stamps: stampsOf(roots), counted: time.Now(), lines: []string{}}
 	p.watch()
 	if p.counted.IsZero() {
@@ -277,14 +277,14 @@ func TestThePlaceholderRereadsAtOnceWhenAnAgentDocks(t *testing.T) {
 	os.WriteFile(a.DockStamp(), []byte("x"), 0o644)
 	p.watch()
 	if !p.counted.IsZero() {
-		t.Fatal("a touched stamp should make the placeholder reread the stores")
+		t.Fatal("a touched stamp should make the placeholder reread the offices")
 	}
 }
 
 func TestNavigationGoesWhereYouAreNeeded(t *testing.T) {
-	sv := &storeView{root: "/s"}
+	sv := &officeView{root: "/s"}
 	mk := func(id, activity string, unread bool) row {
-		return row{store: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: activity, unread: unread}
+		return row{office: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: activity, unread: unread}
 	}
 	m := &model{side: true, placeholder: "w1:p9", rows: []row{
 		mk("D-1", "idle", false), mk("D-2", "ready", false), mk("D-3", "idle", true), mk("D-4", "blocked", false),
@@ -321,8 +321,8 @@ func TestTheFooterShowsWhatMakesSenseNow(t *testing.T) {
 		}
 		return strings.Join(s, " ")
 	}
-	sv := &storeView{root: "/s"}
-	waiting := row{store: sv, d: &dossier.Dossier{ID: "D-1", State: dossier.Waiting, Run: dossier.RunState{Session: "x"}}, activity: "idle"}
+	sv := &officeView{root: "/s"}
+	waiting := row{office: sv, d: &dossier.Dossier{ID: "D-1", State: dossier.Waiting, Run: dossier.RunState{Session: "x"}}, activity: "idle"}
 	m := &model{rows: []row{waiting}}
 	g := m.footer()
 	if g[0].title != "dossier" || g[1].title != "agent" || g[2].title != "move" || g[3].title != "view" {
@@ -344,11 +344,11 @@ func TestTheFooterShowsWhatMakesSenseNow(t *testing.T) {
 func TestTheTUIComesBackWhereItWas(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	a.Open(app.OpenParams{Title: "Un", NoStart: true})
 	a.Open(app.OpenParams{Title: "Deux", NoStart: true})
-	m := &model{roots: store.Discover(root), root: root}
+	m := &model{roots: office.Discover(root), root: root}
 	m.restore(loadState(root), false)
 	if !m.byPriority {
 		t.Fatal("a first start sorts by priority")
@@ -362,7 +362,7 @@ func TestTheTUIComesBackWhereItWas(t *testing.T) {
 	}
 	m.lastDocked = docked{"/s", "D-0001"}
 	m.save()
-	n := &model{roots: store.Discover(root), root: root}
+	n := &model{roots: office.Discover(root), root: root}
 	n.restore(loadState(root), false)
 	if !n.todo || n.byPriority || n.selected() == nil || n.selected().d.Title != "Deux" || n.lastDocked.id != "D-0001" {
 		t.Fatalf("restored todo=%v priority=%v selected=%+v last=%+v", n.todo, n.byPriority, n.selected(), n.lastDocked)
@@ -382,8 +382,8 @@ func TestTheSideRatioComesBackWithinBounds(t *testing.T) {
 }
 
 func TestOShowsTheAgentAndKeepsTheFocus(t *testing.T) {
-	sv := &storeView{root: "/s"}
-	m := &model{side: true, placeholder: "w1:p9", rows: []row{{store: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "idle"}}}
+	sv := &officeView{root: "/s"}
+	m := &model{side: true, placeholder: "w1:p9", rows: []row{{office: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "idle"}}}
 	if cmd := m.key("O"); cmd == nil || m.docked.id != "D-1" {
 		t.Fatalf("O should dock D-1: %+v", m.docked)
 	}
@@ -399,7 +399,7 @@ func TestUnreadIsHerdrsDone(t *testing.T) {
 func TestStarredDossiersComeFirstAndStayAtHand(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	for _, title := range []string{"Un", "Deux", "Trois"} {
 		a.Open(app.OpenParams{Title: title, NoStart: true})
@@ -417,7 +417,7 @@ func TestStarredDossiersComeFirstAndStayAtHand(t *testing.T) {
 		}
 		return strings.Join(got, ",")
 	}
-	m := &model{roots: store.Discover(root)}
+	m := &model{roots: office.Discover(root)}
 	m.reload()
 	if got := titles(m); !strings.HasPrefix(got, "Trois") {
 		t.Fatalf("a starred dossier comes first: %s", got)
@@ -454,9 +454,9 @@ func TestTheTUIRecordsItsPaneUntilItQuits(t *testing.T) {
 }
 
 func TestDocksRunOneAtATimeAndTheLastAskWins(t *testing.T) {
-	sv := &storeView{root: "/s"}
+	sv := &officeView{root: "/s"}
 	mk := func(id string) row {
-		return row{store: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: "idle"}
+		return row{office: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: "idle"}
 	}
 	m := &model{side: true, placeholder: "w1:p9", rows: []row{mk("D-1"), mk("D-2"), mk("D-3")}}
 	if cmd := m.dock(&m.rows[0], false); cmd == nil || m.docked.id != "D-1" {
@@ -472,9 +472,9 @@ func TestDocksRunOneAtATimeAndTheLastAskWins(t *testing.T) {
 }
 
 func TestTheFocusFollowsWhenTheKeyCameFromTheAgent(t *testing.T) {
-	sv := &storeView{root: "/s"}
+	sv := &officeView{root: "/s"}
 	m := &model{side: true, placeholder: "w1:p9", docking: true, rows: []row{
-		{store: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "ready"},
+		{office: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "ready"},
 	}}
 	old := tuiFocused
 	t.Cleanup(func() { tuiFocused = old })
@@ -491,9 +491,9 @@ func TestTheFocusFollowsWhenTheKeyCameFromTheAgent(t *testing.T) {
 }
 
 func TestAngleBracketsShowTheNeighbourDossier(t *testing.T) {
-	sv := &storeView{root: "/s"}
+	sv := &officeView{root: "/s"}
 	mk := func(id string) row {
-		return row{store: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: "idle"}
+		return row{office: sv, d: &dossier.Dossier{ID: id, Run: dossier.RunState{Session: "s-" + id}}, activity: "idle"}
 	}
 	m := &model{side: true, placeholder: "w1:p9", rows: []row{mk("D-1"), {}, mk("D-2"), mk("D-3")}, docked: docked{"/s", "D-2"}}
 	m.key(">")
@@ -510,7 +510,7 @@ func TestAngleBracketsShowTheNeighbourDossier(t *testing.T) {
 }
 
 func TestTheShownAgentKeepsItsRank(t *testing.T) {
-	sv := &storeView{root: "/s"}
+	sv := &officeView{root: "/s"}
 	d := &dossier.Dossier{ID: "D-1", State: dossier.Open, Run: dossier.RunState{Session: "x", PaneID: "p"}}
 	live := map[string]string{"p": "unknown"}
 	if rankActivity(d, live, sv, view{}) != "idle" {
@@ -522,9 +522,9 @@ func TestTheShownAgentKeepsItsRank(t *testing.T) {
 }
 
 func TestOnlyAnAgentThatWaitedKeepsTheTopRank(t *testing.T) {
-	sv := &storeView{root: "/s"}
-	idle := row{store: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "idle"}
-	ready := row{store: sv, d: &dossier.Dossier{ID: "D-2", Run: dossier.RunState{Session: "y"}}, activity: "ready"}
+	sv := &officeView{root: "/s"}
+	idle := row{office: sv, d: &dossier.Dossier{ID: "D-1", Run: dossier.RunState{Session: "x"}}, activity: "idle"}
+	ready := row{office: sv, d: &dossier.Dossier{ID: "D-2", Run: dossier.RunState{Session: "y"}}, activity: "ready"}
 	m := &model{side: true, placeholder: "w1:p9"}
 	m.dock(&idle, false)
 	if m.dockedKey() != "" {
@@ -560,7 +560,7 @@ func TestAWorkingAgentSpins(t *testing.T) {
 func TestTheDetailPanelsLinksOpen(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	s, _ := store.Init(filepath.Join(root, "pro"), "pro", false)
+	s, _ := office.Init(filepath.Join(root, "pro"), "pro", false)
 	a := &app.App{S: s}
 	a.Open(app.OpenParams{Title: "Séance", SourceRef: "fake:x/1", URL: "https://example.test/1", NoStart: true})
 	a.Open(app.OpenParams{Title: "Point", NoStart: true})
@@ -573,7 +573,7 @@ func TestTheDetailPanelsLinksOpen(t *testing.T) {
 	t.Cleanup(func() { openExternal = old })
 	openExternal = func(target string) error { opened = append(opened, target); return nil }
 
-	m := &model{roots: store.Discover(root), byPriority: false}
+	m := &model{roots: office.Discover(root), byPriority: false}
 	m.reload()
 	for i, r := range m.rows {
 		if r.d != nil && r.d.Title == "Séance" {

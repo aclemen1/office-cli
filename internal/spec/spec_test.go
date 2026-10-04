@@ -16,7 +16,7 @@ func testAction() *Action {
 			{Name: "file", Kind: StringList},
 			{Name: "dry-run", Kind: Bool},
 		},
-		Examples: []string{`dossier move D-0042 --on "Baer SA"`},
+		Examples: []string{`office move D-0042 --on "Baer SA"`},
 	}
 }
 
@@ -74,7 +74,7 @@ func TestParseErrorsNameTheCanonicalCall(t *testing.T) {
 		if e.Kind != "user_error" || e.Code != ExitUsage || !strings.Contains(e.Message, want) {
 			t.Fatalf("%v: got %+v, want message containing %q", argv, e, want)
 		}
-		if !strings.Contains(e.Message, "dossier move") {
+		if !strings.Contains(e.Message, "office move") {
 			t.Fatalf("%v: message does not show the canonical call: %s", argv, e.Message)
 		}
 	}

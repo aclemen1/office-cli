@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 	Waiting = "waiting"
 	Done    = "done"
 	Merged  = "merged"
-	// Desk is the state of a store's desk: a session without an affair, never closed.
+	// Desk is the state of an office's desk: a session without an affair, never closed.
 	Desk = "desk"
 )
 
@@ -92,7 +92,7 @@ func (d *Dossier) Path(parts ...string) string {
 	return filepath.Join(append([]string{d.Dir}, parts...)...)
 }
 
-func (d *Dossier) Num() int { return store.NumberOf(d.Dir) }
+func (d *Dossier) Num() int { return office.NumberOf(d.Dir) }
 
 // Label is how people name the dossier: U-RDIR when it has an alias, its id otherwise.
 func (d *Dossier) Label() string {
@@ -155,7 +155,7 @@ func Load(dir string) (*Dossier, error) {
 		doc: mapping, body: body,
 	}
 	if d.ID == "" {
-		d.ID = fmt.Sprintf("D-%04d", store.NumberOf(dir))
+		d.ID = fmt.Sprintf("D-%04d", office.NumberOf(dir))
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, ".state.json")); err == nil {
 		_ = json.Unmarshal(b, &d.Run)

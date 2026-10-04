@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 func typeIn(a *ask, s string) {
@@ -17,7 +17,7 @@ func typeIn(a *ask, s string) {
 
 func TestWaitFormAsksWhomAndWhenThenRuns(t *testing.T) {
 	m := &model{}
-	r := &row{store: &storeView{root: "/s"}, d: &dossier.Dossier{ID: "D-0017", State: dossier.Waiting, WaitingOn: "Alain", WaitUntil: "2027-01-04T23:59:59+01:00"}}
+	r := &row{office: &officeView{root: "/s"}, d: &dossier.Dossier{ID: "D-0017", State: dossier.Waiting, WaitingOn: "Alain", WaitUntil: "2027-01-04T23:59:59+01:00"}}
 	m.stateKey("W", r)
 	if m.ask == nil || m.ask.fields[0].value != "Alain" {
 		t.Fatalf("form %+v", m.ask)
@@ -41,15 +41,15 @@ func TestWaitFormAsksWhomAndWhenThenRuns(t *testing.T) {
 	}
 }
 
-func TestNewDossierFormNeedsATitleAndKnowsTheStores(t *testing.T) {
-	m := &model{stores: []*storeView{{name: "perso", root: "/p"}, {name: "pro", root: "/u"}}}
-	seance := &row{store: m.stores[1], d: &dossier.Dossier{ID: "U-0006", Alias: "RDIR", State: dossier.Open}}
+func TestNewDossierFormNeedsATitleAndKnowsTheOffices(t *testing.T) {
+	m := &model{offices: []*officeView{{name: "perso", root: "/p"}, {name: "pro", root: "/u"}}}
+	seance := &row{office: m.offices[1], d: &dossier.Dossier{ID: "U-0006", Alias: "RDIR", State: dossier.Open}}
 	m.newDossier(seance)
 	labels := []string{}
 	for _, f := range m.ask.fields {
 		labels = append(labels, f.label+"="+f.value)
 	}
-	if got := strings.Join(labels, ","); got != "title=,instruction=,store=pro,in=U-RDIR,start session=yes" {
+	if got := strings.Join(labels, ","); got != "title=,instruction=,office=pro,in=U-RDIR,start session=yes" {
 		t.Fatalf("fields %s", got)
 	}
 	for range m.ask.fields {

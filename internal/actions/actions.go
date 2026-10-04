@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
-	"github.com/aclemen1/dossier-cli/internal/tui"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/tui"
 )
 
 var Version = "0.1.0-dev"
@@ -31,9 +31,9 @@ func idParam(help string) spec.Param {
 	return spec.Param{Name: "id", Kind: spec.String, Positional: true, Help: help, Aliases: []string{"dossier"}}
 }
 
-// withApp opens the store, takes its lock for mutating actions and runs fn.
+// withApp opens the office, takes its lock for mutating actions and runs fn.
 func withApp(ctx *spec.Context, lock bool, fn func(*app.App) (any, error)) (any, error) {
-	a, err := app.New(ctx.Store)
+	a, err := app.New(ctx.Office)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func moveAction(name, summary string, effects, examples []string, extra ...spec.
 			s := r.(stateResult)
 			fmt.Fprintf(w, "%s is %s", s.ID, s.State)
 			if s.Pending > 0 {
-				fmt.Fprintf(w, " · %d source transition(s) pending, see `dossier retry %s`", s.Pending, s.ID)
+				fmt.Fprintf(w, " · %d source transition(s) pending, see `office retry %s`", s.Pending, s.ID)
 			}
 			fmt.Fprintln(w)
 		},
@@ -108,8 +108,8 @@ func moveAction(name, summary string, effects, examples []string, extra ...spec.
 func init() {
 	// ---------------------------------------------------------------- meta
 	spec.Register(&spec.Action{
-		Category: "meta", Name: "version", Summary: "Print the dossier version.", Meta: true,
-		Examples: []string{"dossier version"},
+		Category: "meta", Name: "version", Summary: "Print the office version.", Meta: true,
+		Examples: []string{"office version"},
 		Run:      func(*spec.Context) (any, error) { return Version, nil },
 	})
 	spec.Register(&spec.Action{
@@ -119,7 +119,7 @@ func init() {
 			{Name: "action", Kind: spec.String, Positional: true, Help: "Action to describe."},
 			{Name: "search", Kind: spec.String, Help: "Match actions across categories."},
 		},
-		Examples: []string{"dossier schema", "dossier schema state", "dossier schema state close", "dossier schema --search merge"},
+		Examples: []string{"office schema", "office schema state", "office schema state close", "office schema --search merge"},
 		Run: func(ctx *spec.Context) (any, error) {
 			if q := ctx.Str("search"); q != "" {
 				return spec.Search(q), nil
@@ -137,7 +137,7 @@ func init() {
 			}
 			a := spec.Find(cat, act)
 			if a == nil {
-				return nil, spec.NotFound("no action %q in %q. Try `dossier schema %s`", act, cat, cat)
+				return nil, spec.NotFound("no action %q in %q. Try `office schema %s`", act, cat, cat)
 			}
 			return spec.Leaf{Action: a, Usage: spec.Usage(a)}, nil
 		},
@@ -150,11 +150,11 @@ func init() {
 			{Name: "for", Kind: spec.String, Default: "claude", Help: "Harness to install for: claude."},
 			{Name: "dir", Kind: spec.String, Help: "Install into this directory instead."},
 		},
-		Effects:  []string{"install: writes SKILL.md into ~/.claude/skills/dossier/ (or --dir)."},
-		Examples: []string{"dossier skill show", "dossier skill install --for claude"},
+		Effects:  []string{"install: writes SKILL.md into ~/.claude/skills/office/ (or --dir)."},
+		Examples: []string{"office skill show", "office skill install --for claude"},
 		Run: func(ctx *spec.Context) (any, error) {
 			if ctx.Str("verb") == "install" {
-				p, err := installSkill(ctx.Str("for"), store.ExpandHome(ctx.Str("dir")))
+				p, err := installSkill(ctx.Str("for"), office.ExpandHome(ctx.Str("dir")))
 				if err != nil {
 					return nil, err
 				}
@@ -164,36 +164,36 @@ func init() {
 		},
 	})
 
-	// ---------------------------------------------------------------- store
+	// ---------------------------------------------------------------- office
 	spec.Register(&spec.Action{
-		Category: "store", Name: "init", Summary: "Create a store: one per sphere.",
+		Category: "office", Name: "init", Summary: "Create an office: one per sphere.",
 		Params: []spec.Param{
-			{Name: "path", Kind: spec.String, Positional: true, Required: true, Help: "Directory of the new store."},
+			{Name: "path", Kind: spec.String, Positional: true, Required: true, Help: "Directory of the new office."},
 			{Name: "sphere", Kind: spec.String, Required: true, Help: "Sphere name, e.g. perso or pro."},
-			{Name: "default", Kind: spec.Bool, Help: "Record this store as the default one in ~/.config/dossier/config.toml."},
+			{Name: "default", Kind: spec.Bool, Help: "Record this office as the default one in ~/.config/office/config.toml."},
 		},
 		Effects: []string{
-			"Creates <path>/.dossier/config.toml, the prompt templates, index.md (OKF bundle root) and .gitignore.",
-			"With --default, writes default_store to ~/.config/dossier/config.toml.",
+			"Creates <path>/.office/config.toml, the prompt templates, index.md (OKF bundle root) and .gitignore.",
+			"With --default, writes default_office to ~/.config/office/config.toml.",
 		},
-		Examples: []string{"dossier init ~/dossiers/perso --sphere perso --default", "dossier init ~/dossiers/pro --sphere pro"},
+		Examples: []string{"office init ~/offices/perso --sphere perso --default", "office init ~/offices/pro --sphere pro"},
 		Run: func(ctx *spec.Context) (any, error) {
-			s, err := store.Init(ctx.Str("path"), ctx.Str("sphere"), ctx.Bool("default"))
+			s, err := office.Init(ctx.Str("path"), ctx.Str("sphere"), ctx.Bool("default"))
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"store": s.Root, "sphere": s.Config.Store.Sphere, "config": s.Meta("config.toml")}, nil
+			return map[string]any{"office": s.Root, "sphere": s.Config.Office.Sphere, "config": s.Meta("config.toml")}, nil
 		},
 	})
 	spec.Register(&spec.Action{
-		Category: "store", Name: "setup", Summary: "Sync the store's skills directory with [agent] skills and skill_commands.",
+		Category: "office", Name: "setup", Summary: "Sync the office's skills directory with [agent] skills and skill_commands.",
 		Effects: []string{
-			"Symlinks each [agent] skills directory into <store>/.claude/skills/.",
-			"Writes <store>/.claude/skills/<name>/SKILL.md from each skill_commands command.",
+			"Symlinks each [agent] skills directory into <office>/.claude/skills/.",
+			"Writes <office>/.claude/skills/<name>/SKILL.md from each skill_commands command.",
 			"Removes symlinks that the config no longer lists.",
-			"Writes <store>/.dossier/run/agent-settings.json (hooks, deny rules). Both run on their own before every session start.",
+			"Writes <office>/.office/run/agent-settings.json (hooks, deny rules). Both run on their own before every session start.",
 		},
-		Examples: []string{"dossier setup"},
+		Examples: []string{"office setup"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
 				settings, err := a.AgentSettings()
@@ -205,8 +205,8 @@ func init() {
 		},
 	})
 	spec.Register(&spec.Action{
-		Category: "store", Name: "doctor", Summary: "Check the ACP server, herdr, every connector and pending transitions.",
-		Examples: []string{"dossier doctor"},
+		Category: "office", Name: "doctor", Summary: "Check the ACP server, herdr, every connector and pending transitions.",
+		Examples: []string{"office doctor"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) { return a.Doctor(), nil })
 		},
@@ -239,19 +239,19 @@ func init() {
 			{Name: "no-start", Kind: spec.Bool, Help: "Create the dossier without starting its session."},
 		},
 		Effects: []string{
-			"Creates <store>/NNNN-<slug>/ with dossier.md, log.md, .state.json and prompts/0001-open.md.",
+			"Creates <office>/NNNN-<slug>/ with dossier.md, log.md, .state.json and prompts/0001-open.md.",
 			"Starts an agent session in a new herdr tab through the ACP server and sends the open prompt; returns before the turn ends.",
 		},
 		Examples: []string{
-			`dossier open --title "Armoire de pharmacie" --instruction "Demander une date de passage"`,
-			`dossier open --title "Devis toiture" --file ~/Downloads/devis.pdf --no-start`,
-			`dossier open --title "Relance gérance" --in D-0042`,
+			`office open --title "Armoire de pharmacie" --instruction "Demander une date de passage"`,
+			`office open --title "Devis toiture" --file ~/Downloads/devis.pdf --no-start`,
+			`office open --title "Relance gérance" --in D-0042`,
 		},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
 				instr := ctx.Str("instruction")
 				if f := ctx.Str("instruction-file"); f != "" {
-					b, err := os.ReadFile(store.ExpandHome(f))
+					b, err := os.ReadFile(office.ExpandHome(f))
 					if err != nil {
 						return nil, spec.UserError("cannot read --instruction-file %s: %v", f, err)
 					}
@@ -259,7 +259,7 @@ func init() {
 				}
 				var files []connector.File
 				for _, f := range ctx.List("file") {
-					p := store.ExpandHome(f)
+					p := office.ExpandHome(f)
 					if _, err := os.Stat(p); err != nil {
 						return nil, spec.UserError("--file %s: %v", f, err)
 					}
@@ -290,7 +290,7 @@ func init() {
 			{Name: "status", Kind: spec.String, Default: "active", Enum: []string{"active", "todo", "open", "waiting", "done", "merged", "all"}, Help: "active = open and waiting; todo = open and needing action (not parked)."},
 			{Name: "in", Kind: spec.String, Help: "Only the dossiers this one includes."},
 		},
-		Examples: []string{"dossier ls", "dossier ls --status todo", "dossier ls --status waiting", "dossier ls --status all --format text"},
+		Examples: []string{"office ls", "office ls --status todo", "office ls --status waiting", "office ls --status all --format text"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) { return a.List(ctx.Str("status"), ctx.Str("in")) })
 		},
@@ -327,7 +327,7 @@ func init() {
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "show", Summary: "Show one dossier: sources, state, session, files, history.",
 		Params:   []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID.")},
-		Examples: []string{"dossier show D-0042", "dossier show 42 --format text"},
+		Examples: []string{"office show D-0042", "office show 42 --format text"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
 				d, err := a.LoadAny(ctx.Str("id"))
@@ -369,13 +369,13 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
-		Category: "dossier", Name: "search", Summary: "Search every dossier of the store, open or closed.",
+		Category: "dossier", Name: "search", Summary: "Search every dossier of the office, open or closed.",
 		Params: []spec.Param{
 			{Name: "query", Kind: spec.String, Positional: true, Required: true, Help: "Words that must all appear."},
 			{Name: "status", Kind: spec.String, Default: "all", Enum: []string{"all", "open", "waiting", "done", "merged"}, Help: "Restrict to one state."},
 			{Name: "with-transcripts", Kind: spec.Bool, Help: "Also search session transcripts (slower)."},
 		},
-		Examples: []string{`dossier search "armoire pharmacie"`, `dossier search "Baer" --status done`},
+		Examples: []string{`office search "armoire pharmacie"`, `office search "Baer" --status done`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
 				return a.Search(ctx.Str("query"), []string{ctx.Str("status")}, ctx.Bool("with-transcripts"))
@@ -394,7 +394,7 @@ func init() {
 			{Name: "no-prompt", Kind: spec.Bool, Help: "When the dossier has no session yet, start one without sending its open prompt."}},
 		Effects: []string{"May open a new herdr tab running the resumed session.",
 			"Starts a session for a dossier that has none, with its open prompt unless --no-prompt."},
-		Examples: []string{"dossier attach D-0042", "dossier attach D-0042 --no-prompt"},
+		Examples: []string{"office attach D-0042", "office attach D-0042 --no-prompt"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
 				d, err := a.LoadAny(ctx.Str("id"))
@@ -417,7 +417,7 @@ func init() {
 			{Name: "file", Kind: spec.String, Help: "Read the prompt from a file."},
 		},
 		Effects:  []string{"Types the prompt into the agent session; relaunches the session if its tab is gone."},
-		Examples: []string{`dossier prompt D-0042 --text "La gérance a rappelé, rédige la réponse."`},
+		Examples: []string{`office prompt D-0042 --text "La gérance a rappelé, rédige la réponse."`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
 				d, err := a.LoadAny(ctx.Str("id"))
@@ -426,14 +426,14 @@ func init() {
 				}
 				text := ctx.Str("text")
 				if f := ctx.Str("file"); f != "" {
-					b, err := os.ReadFile(store.ExpandHome(f))
+					b, err := os.ReadFile(office.ExpandHome(f))
 					if err != nil {
 						return nil, spec.UserError("cannot read --file %s: %v", f, err)
 					}
 					text = string(b)
 				}
 				if strings.TrimSpace(text) == "" {
-					return nil, spec.UserError("nothing to send. Example: dossier prompt %s --text \"…\"", d.ID)
+					return nil, spec.UserError("nothing to send. Example: office prompt %s --text \"…\"", d.ID)
 				}
 				return nil, a.Prompt(d, text)
 			})
@@ -445,14 +445,14 @@ func init() {
 		name, summary string
 		on            bool
 	}{
-		{"star", "Star a dossier: first in its store, shown in every view of its state, and in the starred view.", true},
+		{"star", "Star a dossier: first in its office, shown in every view of its state, and in the starred view.", true},
 		{"unstar", "Remove a dossier's star.", false},
 	} {
 		spec.Register(&spec.Action{
 			Category: "state", Name: v.name, Summary: v.summary,
 			Params:   []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID.")},
 			Effects:  []string{"Sets or removes starred in dossier.md; the sources see no transition."},
-			Examples: []string{"dossier " + v.name + " D-0042"},
+			Examples: []string{"office " + v.name + " D-0042"},
 			Run: func(ctx *spec.Context) (any, error) {
 				return withApp(ctx, true, func(a *app.App) (any, error) {
 					d, err := a.LoadAny(ctx.Str("id"))
@@ -474,7 +474,7 @@ func init() {
 		Effects: []string{"Calls transition → done on every source (Gmail: star removed; Reminders: completed), and stops when one fails.",
 			"Closes the session's tab and removes every link another dossier holds to it.",
 			"Moves the directory to ~/.Trash on macOS; erases it elsewhere."},
-		Examples: []string{"dossier delete D-0042", `dossier delete D-0042 --note "essai"`},
+		Examples: []string{"office delete D-0042", `office delete D-0042 --note "essai"`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
 				d, err := a.Load(ctx.Str("id"))
@@ -503,7 +503,7 @@ func init() {
 	}{
 		{"park", "Mark an open dossier as needing no action from you for now.",
 			[]string{"Sets no_action: true; the state stays open and the sources see no transition.",
-				"Anything new clears it: an event, a prompt, a state change. `dossier unpark` clears it by hand."},
+				"Anything new clears it: an event, a prompt, a state change. `office unpark` clears it by hand."},
 			(*app.App).Park},
 		{"unpark", "Mark a dossier as needing action again.",
 			[]string{"Removes no_action."},
@@ -513,7 +513,7 @@ func init() {
 			Category: "state", Name: v.name, Summary: v.summary, Effects: v.effects,
 			Params: []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID."),
 				{Name: "note", Kind: spec.String, Help: "Why, kept in the history."}},
-			Examples: []string{"dossier " + v.name + " D-0042", `dossier ` + v.name + ` D-0042 --note "à évoquer à la prochaine séance"`},
+			Examples: []string{"office " + v.name + " D-0042", `office ` + v.name + ` D-0042 --note "à évoquer à la prochaine séance"`},
 			Run: func(ctx *spec.Context) (any, error) {
 				return withApp(ctx, true, func(a *app.App) (any, error) {
 					d, err := a.Load(ctx.Str("id"))
@@ -531,22 +531,22 @@ func init() {
 	spec.Register(moveAction("wait", "Mark the dossier as waiting on a third party.",
 		[]string{"Sets state to waiting, waiting_on and wait_until.", "On a waiting dossier, corrects waiting_on, and wait_until when --until is given; no source transition.", "Calls transition open → waiting on every source (Gmail: purple star).", "Closes the tab when lifecycle.close_tab_on includes waiting.",
 			"When wait_until passes, ingest wakes the dossier and asks its session whether to chase."},
-		[]string{`dossier wait D-0042 --on "Baer SA"`, `dossier wait --on "la gérance" --until 2026-10-15`, `dossier wait D-0042 --on "Baer SA" --until none`},
+		[]string{`office wait D-0042 --on "Baer SA"`, `office wait --on "la gérance" --until 2026-10-15`, `office wait D-0042 --on "Baer SA" --until none`},
 		spec.Param{Name: "on", Kind: spec.String, Required: true, Help: "Who the dossier waits for."},
-		spec.Param{Name: "until", Kind: spec.String, Help: "When to chase: a date (2026-10-15), a duration (7d, 48h) or none. Defaults to the store's lifecycle.default_wait (7d)."},
+		spec.Param{Name: "until", Kind: spec.String, Help: "When to chase: a date (2026-10-15), a duration (7d, 48h) or none. Defaults to the office's lifecycle.default_wait (7d)."},
 		spec.Param{Name: "note", Kind: spec.String, Help: "Free note for the history."}))
 	spec.Register(moveAction("resume", "Bring a waiting dossier back to open.",
 		[]string{"Sets state to open.", "Calls transition waiting → open on every source (Gmail: purple star removed)."},
-		[]string{"dossier resume D-0042", `dossier resume D-0042 --prompt "Baer SA a répondu, lis le dernier message."`},
+		[]string{"office resume D-0042", `office resume D-0042 --prompt "Baer SA a répondu, lis le dernier message."`},
 		spec.Param{Name: "note", Kind: spec.String, Help: "Free note for the history."},
 		spec.Param{Name: "prompt", Kind: spec.String, Help: "Prompt sent to the session after resuming."}))
 	spec.Register(moveAction("reopen", "Reopen a closed dossier.",
 		[]string{"Sets state to open.", "Calls transition done → open on every source (Gmail: task unchecked)."},
-		[]string{"dossier reopen D-0042"},
+		[]string{"office reopen D-0042"},
 		spec.Param{Name: "note", Kind: spec.String, Help: "Free note for the history."}))
 	close := moveAction("close", "Close the dossier.",
 		[]string{"Sets state to done and archives the transcript.", "Calls transition → done on every source (Gmail: task checked, purple star removed, label reviewed).", "Closes the tab when lifecycle.close_tab_on includes done."},
-		[]string{`dossier close D-0042 --note "Passage fixé au 12.10"`, "dossier close"},
+		[]string{`office close D-0042 --note "Passage fixé au 12.10"`, "office close"},
 		spec.Param{Name: "note", Kind: spec.String, Help: "Outcome, kept in the history."})
 	close.Destructive = true
 	spec.Register(close)
@@ -554,7 +554,7 @@ func init() {
 	spec.Register(&spec.Action{
 		Category: "state", Name: "retry", Summary: "Replay source transitions left pending.",
 		Params:   []spec.Param{idParam("Dossier id; all dossiers when omitted outside a session.")},
-		Examples: []string{"dossier retry", "dossier retry D-0042"},
+		Examples: []string{"office retry", "office retry D-0042"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
 				var targets []*dossier.Dossier
@@ -591,7 +591,7 @@ func init() {
 			relParam,
 		},
 		Effects:  []string{"Adds {rel, to} to links in <from>/dossier.md and rewrites its managed links block.", "Appends a line to <from>/log.md."},
-		Examples: []string{"dossier link D-0007 D-0042 --rel includes", "dossier link D-0042 D-0051 --rel depends_on"},
+		Examples: []string{"office link D-0007 D-0042 --rel includes", "office link D-0042 D-0051 --rel depends_on"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) { return a.Link(ctx.Str("from"), ctx.Str("to"), ctx.Str("rel")) })
 		},
@@ -608,7 +608,7 @@ func init() {
 			unlinkRel,
 		},
 		Effects:  []string{"Removes the matching links from <from>/dossier.md and rewrites its managed links block."},
-		Examples: []string{"dossier unlink D-0007 D-0042", "dossier unlink D-0042 D-0051 --rel depends_on"},
+		Examples: []string{"office unlink D-0007 D-0042", "office unlink D-0042 D-0051 --rel depends_on"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) { return a.Unlink(ctx.Str("from"), ctx.Str("to"), ctx.Str("rel")) })
 		},
@@ -624,7 +624,7 @@ func init() {
 			{Name: "rel", Kind: spec.String, Default: "all", Enum: []string{"all", "includes", "depends_on"}, Help: "Link types to follow."},
 			{Name: "depth", Kind: spec.String, Default: "2", Help: "Levels to walk."},
 		},
-		Examples: []string{"dossier tree D-0007", "dossier tree D-0007 --rel includes --depth 1 --format text"},
+		Examples: []string{"office tree D-0007", "office tree D-0007 --rel includes --depth 1 --format text"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
 				d, err := a.Load(ctx.Str("id"))
@@ -633,7 +633,7 @@ func init() {
 				}
 				depth, err := strconv.Atoi(ctx.Str("depth"))
 				if err != nil || depth < 1 {
-					return nil, spec.UserError("--depth takes a positive integer, got %q. Example: dossier tree %s --depth 2", ctx.Str("depth"), d.ID)
+					return nil, spec.UserError("--depth takes a positive integer, got %q. Example: office tree %s --depth 2", ctx.Str("depth"), d.ID)
 				}
 				return a.Tree(d, ctx.Str("rel"), depth), nil
 			})
@@ -642,15 +642,15 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
-		Category: "store", Name: "tui", Summary: "Browse every store under a root: dossiers, links, agents; jump to a dossier's pane.",
+		Category: "office", Name: "tui", Summary: "Browse every office under a root: dossiers, links, agents; jump to a dossier's pane.",
 		Discussion: "Interactive, for a person in a terminal. Inside a herdr pane it starts in side mode: a placeholder pane at its " +
 			"right, where enter shows the selected dossier's agent. Outside side mode, enter focuses the agent's tab. It comes back to the views, selection and docked agent of its last exit; --reset starts afresh.",
 		Params: []spec.Param{
-			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the offices, or one office. Defaults to the parent of the resolved office."},
 			{Name: "no-side", Kind: spec.Bool, Help: "Start without the placeholder pane; v turns side mode on later."},
 			{Name: "reset", Kind: spec.Bool, Help: "Start from the default views instead of the state saved at the last exit."},
 		},
-		Examples: []string{"dossier tui", "dossier tui ~/dossiers"},
+		Examples: []string{"office tui", "office tui ~/offices"},
 		Run: func(ctx *spec.Context) (any, error) {
 			root, err := rootOf(ctx)
 			if err != nil {
@@ -661,25 +661,25 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
-		Category: "store", Name: "tui-key", Summary: "Type keys into the running TUI, e.g. from a herdr key binding while the focus is in an agent.",
+		Category: "office", Name: "tui-key", Summary: "Type keys into the running TUI, e.g. from a herdr key binding while the focus is in an agent.",
 		Discussion: "The TUI records its herdr pane while it runs. Each argument is one key as herdr send-keys names it: ], [, ', h, g p (two keys).",
 		Params:     []spec.Param{{Name: "keys", Kind: spec.StringList, Positional: true, Required: true, Help: "Keys, in order."}},
-		Examples:   []string{"dossier tui-key ]", "dossier tui-key g p"},
+		Examples:   []string{"office tui-key ]", "office tui-key g p"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return map[string]any{"sent": ctx.List("keys")}, tui.SendKeys(ctx.List("keys"))
 		},
 	})
 
 	spec.Register(&spec.Action{
-		Category: "store", Name: "herdr-view", Summary: "Hide the stores' agents from herdr's agent list, except those that wait for you.",
-		Discussion: "Sets herdr's agent view (agent.view.set, source dossier) on the workspaces named by --workspace in each store's [acp] command. " +
+		Category: "office", Name: "herdr-view", Summary: "Hide the offices' agents from herdr's agent list, except those that wait for you.",
+		Discussion: "Sets herdr's agent view (agent.view.set, source dossier) on the workspaces named by --workspace in each office's [acp] command. " +
 			"An agent there stays listed while it asks a permission or waits for your turn, or when its workspace is on screen. " +
 			"herdr forgets the view when its server restarts; the TUI sets it at each start.",
 		Params: []spec.Param{
-			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the offices, or one office. Defaults to the parent of the resolved office."},
 			{Name: "clear", Kind: spec.Bool, Help: "Show every agent again."},
 		},
-		Examples: []string{"dossier herdr-view", "dossier herdr-view --clear"},
+		Examples: []string{"office herdr-view", "office herdr-view --clear"},
 		Run: func(ctx *spec.Context) (any, error) {
 			if ctx.Bool("clear") {
 				return map[string]any{"view": "cleared"}, app.ClearAgentView()
@@ -688,18 +688,18 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"view": "set"}, app.SetAgentView(store.Discover(root))
+			return map[string]any{"view": "set"}, app.SetAgentView(office.Discover(root))
 		},
 	})
 
 	spec.Register(&spec.Action{
-		Category: "store", Name: "placeholder", Summary: "Fill the pane that docked agents take the place of: its name, the time, the stores' counts.",
+		Category: "office", Name: "placeholder", Summary: "Fill the pane that docked agents take the place of: its name, the time, the offices' counts.",
 		Discussion: "Interactive. The TUI's side mode (v) runs it in the pane it keeps at its right.",
 		Params: []spec.Param{
-			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the offices, or one office. Defaults to the parent of the resolved office."},
 			{Name: "tui", Kind: spec.String, Help: "herdr pane of the TUI it serves: once that pane is gone, it sends its docked agent home, closes its own pane and stops."},
 		},
-		Examples: []string{"dossier placeholder ~/dossiers"},
+		Examples: []string{"office placeholder ~/offices"},
 		Run: func(ctx *spec.Context) (any, error) {
 			root, err := rootOf(ctx)
 			if err != nil {
@@ -710,29 +710,29 @@ func init() {
 	})
 
 	spec.Register(&spec.Action{
-		Category: "store", Name: "stores", Summary: "List the stores under a root: sphere, id prefix, charter, open and waiting dossiers.",
-		Discussion: "A store is one sphere of the user's affairs. Read its charter (CLAUDE.md at its root) before working in it: " +
-			"it says what belongs there and how its memory is searched. Pass a store to any action with --store <root>.",
+		Category: "office", Name: "offices", Summary: "List the offices under a root: sphere, id prefix, charter, open and waiting dossiers.",
+		Discussion: "An office is one sphere of the user's affairs. Read its charter (CLAUDE.md at its root) before working in it: " +
+			"it says what belongs there and how its memory is searched. Pass an office to any action with --office <root>.",
 		Params: []spec.Param{
-			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the stores, or one store. Defaults to the parent of the resolved store."},
+			{Name: "root", Kind: spec.String, Positional: true, Help: "Directory holding the offices, or one office. Defaults to the parent of the resolved office."},
 		},
-		Examples: []string{"dossier stores", "dossier stores ~/dossiers --format text"},
+		Examples: []string{"office offices", "office offices ~/offices --format text"},
 		Run: func(ctx *spec.Context) (any, error) {
 			root, err := rootOf(ctx)
 			if err != nil {
 				return nil, err
 			}
 			def := ""
-			if s, err := store.Resolve(ctx.Store); err == nil {
+			if s, err := office.Resolve(ctx.Office); err == nil {
 				def = s.Root
 			}
-			out := []storeInfo{}
-			for _, dir := range store.Discover(root) {
-				s, err := store.Open(dir)
+			out := []officeInfo{}
+			for _, dir := range office.Discover(root) {
+				s, err := office.Open(dir)
 				if err != nil {
 					continue
 				}
-				info := storeInfo{Root: dir, Sphere: s.Config.Store.Sphere, Prefix: s.Prefix(), Default: dir == def}
+				info := officeInfo{Root: dir, Sphere: s.Config.Office.Sphere, Prefix: s.Prefix(), Default: dir == def}
 				if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
 					info.Charter = filepath.Join(dir, "CLAUDE.md")
 				}
@@ -751,12 +751,12 @@ func init() {
 				out = append(out, info)
 			}
 			if len(out) == 0 {
-				return nil, spec.UserError("no dossier store under %s: a store is a directory holding .dossier/config.toml. Create one with `dossier init <dir>`", root)
+				return nil, spec.UserError("no office under %s: an office is a directory holding .office/config.toml. Create one with `office init <dir>`", root)
 			}
 			return out, nil
 		},
 		Text: func(w io.Writer, r any) {
-			for _, s := range r.([]storeInfo) {
+			for _, s := range r.([]officeInfo) {
 				mark := " "
 				if s.Default {
 					mark = "*"
@@ -782,7 +782,7 @@ func init() {
 			"Sends an event prompt to the dossier of each event's thread, reopening or resuming it first.",
 			"Advances the source cursor only after every item was handled.",
 		},
-		Examples: []string{"dossier ingest", "dossier ingest gmail", "dossier ingest gmail --dry-run"},
+		Examples: []string{"office ingest", "office ingest gmail", "office ingest gmail --dry-run"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
 				return a.Ingest(ctx.List("source"), connector.PollOptions{DryRun: ctx.Bool("dry-run"), Now: ctx.Bool("now")})
@@ -808,7 +808,7 @@ func init() {
 	spec.Register(&spec.Action{
 		Category: "internal", Name: "archive", Summary: "Copy the live session transcript into the dossier.",
 		Params:   []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID.")},
-		Examples: []string{"dossier archive D-0042"},
+		Examples: []string{"office archive D-0042"},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, false, func(a *app.App) (any, error) {
 				d, err := a.LoadAny(ctx.Str("id"))
@@ -827,7 +827,7 @@ func init() {
 			"guard: answers a PreToolUse Bash hook with a deny verdict when a mutating command names an agent.protect path.",
 			"Never fails the agent.",
 		},
-		Examples: []string{"dossier hook session-end < hook.json", "dossier hook guard < pretooluse.json"},
+		Examples: []string{"office hook session-end < hook.json", "office hook guard < pretooluse.json"},
 		Run: func(ctx *spec.Context) (any, error) {
 			var in struct {
 				SessionID      string `json:"session_id"`
@@ -840,10 +840,10 @@ func init() {
 			}
 			b, _ := io.ReadAll(io.LimitReader(ctx.Stdin, 1<<20))
 			_ = json.Unmarshal(bytes.TrimSpace(b), &in)
-			s, err := store.Resolve(ctx.Store)
+			s, err := office.Resolve(ctx.Office)
 			if err != nil && in.Cwd != "" {
 				_ = os.Chdir(in.Cwd)
-				s, err = store.Resolve("")
+				s, err = office.Resolve("")
 			}
 			if err != nil {
 				return nil, nil
@@ -887,7 +887,7 @@ func printTree(w io.Writer, n app.TreeNode, indent string) {
 	}
 }
 
-type storeInfo struct {
+type officeInfo struct {
 	Root    string `json:"root"`
 	Sphere  string `json:"sphere"`
 	Prefix  string `json:"prefix"`
@@ -898,13 +898,13 @@ type storeInfo struct {
 	Waiting int    `json:"waiting"`
 }
 
-// rootOf is the directory holding the stores: the root argument, or the parent
-// of the resolved store.
+// rootOf is the directory holding the offices: the root argument, or the parent
+// of the resolved office.
 func rootOf(ctx *spec.Context) (string, error) {
-	if root := store.ExpandHome(ctx.Str("root")); root != "" {
+	if root := office.ExpandHome(ctx.Str("root")); root != "" {
 		return root, nil
 	}
-	s, err := store.Resolve(ctx.Store)
+	s, err := office.Resolve(ctx.Office)
 	if err != nil {
 		return "", err
 	}
@@ -913,11 +913,11 @@ func rootOf(ctx *spec.Context) (string, error) {
 
 var prefixRe = regexp.MustCompile(`^([A-Za-z]{1,4})-`)
 
-// routeByPrefix: on the command line without --store, an id of another
-// store's prefix (U-0012 from the perso store) acts in that store. A session
-// (DOSSIER_STORE set) stays in its own store.
+// routeByPrefix: on the command line without --office, an id of another
+// office's prefix (U-0012 from the perso office) acts in that office. A session
+// (OFFICE_DIR set) stays in its own office.
 func routeByPrefix(ctx *spec.Context, a *app.App) {
-	if ctx.Store != "" || os.Getenv("DOSSIER_STORE") != "" {
+	if ctx.Office != "" || os.Getenv("OFFICE_DIR") != "" {
 		return
 	}
 	candidates := []string{ctx.Str("id"), ctx.Str("from")}

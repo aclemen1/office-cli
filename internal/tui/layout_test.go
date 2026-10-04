@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 func TestFlowWrapsSegmentsWithoutCuttingThem(t *testing.T) {
@@ -117,11 +117,11 @@ func TestTheSelectionKeepsTheRowsColours(t *testing.T) {
 }
 
 func TestTheHeaderTellsToDoFromNoAction(t *testing.T) {
-	sv := &storeView{name: "pro", count: map[string]int{dossier.Waiting: 1}, all: []*dossier.Dossier{
+	sv := &officeView{name: "pro", count: map[string]int{dossier.Waiting: 1}, all: []*dossier.Dossier{
 		{ID: "U-1", State: dossier.Open}, {ID: "U-2", State: dossier.Open, NoAction: true},
 		{ID: "U-3", State: dossier.Open, NoAction: true}, {ID: "U-4", State: dossier.Waiting},
 	}}
-	m := &model{stores: []*storeView{sv}}
+	m := &model{offices: []*officeView{sv}}
 	got := ansi.Strip(strings.Join(m.topBar(200), " "))
 	if !strings.Contains(got, "pro  1 to do  2 no action  1 waiting") {
 		t.Fatalf("header %q", got)

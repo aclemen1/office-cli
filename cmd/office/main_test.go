@@ -71,7 +71,7 @@ func setup(t *testing.T) string {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DOSSIER_ID", "")
-	t.Setenv("DOSSIER_STORE", "")
+	t.Setenv("OFFICE_DIR", "")
 	fakeHerdr(t)
 	root := filepath.Join(t.TempDir(), "pro")
 	if code, env := call(t, "init", root, "--sphere", "pro", "--format", "json"); code != 0 {
@@ -83,7 +83,7 @@ func setup(t *testing.T) string {
 func TestWithoutHerdrOnlyMetaMCPAndDoctorRun(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "none.sock"))
-	code, env := call(t, "ls", "--store", t.TempDir(), "--format", "json")
+	code, env := call(t, "ls", "--office", t.TempDir(), "--format", "json")
 	if code == 0 || !strings.Contains(env["error"].(map[string]any)["message"].(string), "herdr") {
 		t.Fatalf("ls without herdr: %d %v", code, env)
 	}
@@ -99,7 +99,7 @@ func TestADossierLivesThroughTheCLI(t *testing.T) {
 	root := setup(t)
 	s := func(args ...string) map[string]any {
 		t.Helper()
-		code, env := call(t, append(args, "--store", root, "--format", "json")...)
+		code, env := call(t, append(args, "--office", root, "--format", "json")...)
 		if code != 0 || env["ok"] != true {
 			t.Fatalf("%v: %d %v", args, code, env)
 		}
@@ -131,7 +131,7 @@ func TestADossierLivesThroughTheCLI(t *testing.T) {
 	if show := s("show", "desk")["result"].(map[string]any); show["id"] != "D-DESK" {
 		t.Fatalf("desk %v", show)
 	}
-	if code, env := call(t, "wait", "desk", "--on", "x", "--store", root, "--format", "json"); code == 0 {
+	if code, env := call(t, "wait", "desk", "--on", "x", "--office", root, "--format", "json"); code == 0 {
 		t.Fatalf("the desk took a state: %v", env)
 	}
 }
@@ -152,9 +152,9 @@ func TestMoveFromTheCLIByPrefixAndSphere(t *testing.T) {
 	if code, env := call(t, "init", perso, "--sphere", "perso", "--format", "json"); code != 0 {
 		t.Fatalf("init perso: %v", env)
 	}
-	s := func(store string, args ...string) map[string]any {
+	s := func(office string, args ...string) map[string]any {
 		t.Helper()
-		code, env := call(t, append(args, "--store", store, "--format", "json")...)
+		code, env := call(t, append(args, "--office", office, "--format", "json")...)
 		if code != 0 || env["ok"] != true {
 			t.Fatalf("%v: %d %v", args, code, env)
 		}
@@ -187,8 +187,8 @@ func TestTuiKeyTypesIntoTheRunningTUI(t *testing.T) {
 		t.Fatal("no TUI runs: tui-key should say so")
 	}
 	cfg, _ := os.UserConfigDir()
-	os.MkdirAll(filepath.Join(cfg, "dossier"), 0o755)
-	os.WriteFile(filepath.Join(cfg, "dossier", "tui.json"), []byte(`{"/s":{"by_priority":true,"side":true,"pane":"w5T:p9"}}`), 0o644)
+	os.MkdirAll(filepath.Join(cfg, "office"), 0o755)
+	os.WriteFile(filepath.Join(cfg, "office", "tui.json"), []byte(`{"/s":{"by_priority":true,"side":true,"pane":"w5T:p9"}}`), 0o644)
 	if code, env := call(t, "tui-key", "g", "p", "--format", "json"); code != 0 {
 		t.Fatalf("tui-key: %v", env)
 	}

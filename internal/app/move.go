@@ -7,10 +7,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 type Moved struct {
@@ -26,14 +26,14 @@ type MoveResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// Move moves dossiers to another store: each gets a number there, its
+// Move moves dossiers to another office: each gets a number there, its
 // directory, sources, history and session follow; links among the moved
 // dossiers stay, links to the others go. A running session restarts in the
-// target store, with its environment and charter.
-func (a *App) Move(ids []string, target *store.Store) (MoveResult, error) {
+// target office, with its environment and charter.
+func (a *App) Move(ids []string, target *office.Office) (MoveResult, error) {
 	var res MoveResult
 	if len(ids) == 0 {
-		return res, spec.UserError("move needs the dossiers to move, e.g. dossier move P-0010 P-0011 --to pro")
+		return res, spec.UserError("move needs the dossiers to move, e.g. office move P-0010 P-0011 --to pro")
 	}
 	if target.Root == a.S.Root {
 		return res, spec.UserError("%s is already in %s", strings.Join(ids, ", "), target.Root)
@@ -121,7 +121,7 @@ func (a *App) Move(ids []string, target *store.Store) (MoveResult, error) {
 		mv := Moved{From: oldID, To: m.ID, Dir: dir}
 		if running {
 			if err := to.resume(m); err != nil {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: session not restarted (%v); `dossier attach %s` resumes it", m.ID, err, m.ID))
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s: session not restarted (%v); `office attach %s` resumes it", m.ID, err, m.ID))
 			} else {
 				mv.Restarted = true
 			}
@@ -168,8 +168,8 @@ func (a *App) syncLinksBlockOf(id string) {
 	}
 }
 
-// claimSources asks this store's connectors to take the moved dossier's items
-// in (a reminder gets the store's tag), and names the sources it cannot follow.
+// claimSources asks this office's connectors to take the moved dossier's items
+// in (a reminder gets the office's tag), and names the sources it cannot follow.
 func (a *App) claimSources(d *dossier.Dossier) []string {
 	var warn []string
 	for _, s := range d.Sources {
@@ -179,10 +179,10 @@ func (a *App) claimSources(d *dossier.Dossier) []string {
 		}
 		cfg, ok := a.S.Config.Source(name)
 		if !ok {
-			warn = append(warn, fmt.Sprintf("%s: %s has no source %q here; its signal stays with the old store's connector", d.ID, s.ID, name))
+			warn = append(warn, fmt.Sprintf("%s: %s has no source %q here; its signal stays with the old office's connector", d.ID, s.ID, name))
 			continue
 		}
-		r := connector.Runner{Store: a.S, Source: cfg}
+		r := connector.Runner{Office: a.S, Source: cfg}
 		desc, err := r.Describe()
 		if err != nil || !contains(desc.Verbs, "claim") {
 			warn = append(warn, fmt.Sprintf("%s: source %s cannot take %s in; check that it sees it", d.ID, name, s.ID))
@@ -204,7 +204,7 @@ func projectDir(dir string) string {
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = real
 	}
-	return filepath.Join(store.ExpandHome("~/.claude/projects"), notAlnum.ReplaceAllString(dir, "-"))
+	return filepath.Join(office.ExpandHome("~/.claude/projects"), notAlnum.ReplaceAllString(dir, "-"))
 }
 
 // moveConversation moves a session's transcript, and its side directory, to

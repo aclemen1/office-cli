@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 func TestAliasesNameLastingDossiers(t *testing.T) {
 	f := newFixture(t)
-	f.a.S.Config.Store.IDPrefix = "U"
+	f.a.S.Config.Office.IDPrefix = "U"
 	r, err := f.a.Open(OpenParams{Title: "Séance RDIR", Alias: "rdir", NoStart: true})
 	if err != nil {
 		t.Fatal(err)

@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 // ask is a short form on the bottom line: one field after the other, enter to
@@ -64,14 +64,14 @@ func (a *ask) view() string {
 // stateKey opens the form or runs the command of a state key: W wait, u
 // resume or reopen, x close.
 func (m *model) stateKey(k string, r *row) tea.Cmd {
-	d, root := r.d, r.store.root
+	d, root := r.d, r.office.root
 	switch k {
 	case "W":
 		if d.State != dossier.Open && d.State != dossier.Waiting {
 			m.status, m.statusErr = d.Label()+" is "+d.State+": only an open or waiting dossier can wait", true
 			return nil
 		}
-		title, hint := "Wait "+d.Label(), "a date (2026-10-15), a delay (7d, 48h) or none; empty: the store's default"
+		title, hint := "Wait "+d.Label(), "a date (2026-10-15), a delay (7d, 48h) or none; empty: the office's default"
 		if d.State == dossier.Waiting {
 			title, hint = "Correct the wait of "+d.Label(), "a date, a delay or none; empty: keep "+dayMonthYear(d.WaitUntil)
 		}
@@ -125,28 +125,28 @@ func (m *model) stateKey(k string, r *row) tea.Cmd {
 	return nil
 }
 
-// newDossier opens the form of the + key: title, instruction, store, the
+// newDossier opens the form of the + key: title, instruction, office, the
 // dossier that includes it, and whether to start its session.
 func (m *model) newDossier(r *row) {
-	stores := make([]string, 0, len(m.stores))
-	for _, sv := range m.stores {
-		stores = append(stores, sv.name)
+	offices := make([]string, 0, len(m.offices))
+	for _, sv := range m.offices {
+		offices = append(offices, sv.name)
 	}
-	store, in := "", ""
+	office, in := "", ""
 	if r != nil {
-		store = r.store.name
+		office = r.office.name
 		if r.d.Alias != "" || len(r.d.Targets(dossier.RelIncludes)) > 0 {
 			in = r.d.Label()
 		}
-	} else if len(m.stores) > 0 {
-		store = m.stores[0].name
+	} else if len(m.offices) > 0 {
+		office = m.offices[0].name
 	}
 	fields := []askField{
 		{label: "title", hint: "short name of the affair"},
-		{label: "instruction", hint: "what the agent should do; empty: the store's default"},
+		{label: "instruction", hint: "what the agent should do; empty: the office's default"},
 	}
-	if len(stores) > 1 {
-		fields = append(fields, askField{label: "store", value: store, hint: strings.Join(stores, " or ")})
+	if len(offices) > 1 {
+		fields = append(fields, askField{label: "office", value: office, hint: strings.Join(offices, " or ")})
 	}
 	fields = append(fields,
 		askField{label: "in", value: in, hint: "dossier that includes it, e.g. a meeting; empty: on its own"},
@@ -166,17 +166,17 @@ func (m *model) newDossier(r *row) {
 			return nil
 		}
 		root := ""
-		want := get("store")
+		want := get("office")
 		if want == "" {
-			want = store
+			want = office
 		}
-		for _, sv := range m.stores {
+		for _, sv := range m.offices {
 			if strings.EqualFold(sv.name, want) {
 				root = sv.root
 			}
 		}
 		if root == "" {
-			m.status, m.statusErr = "no store named "+want+": "+strings.Join(stores, ", "), true
+			m.status, m.statusErr = "no office named "+want+": "+strings.Join(offices, ", "), true
 			return nil
 		}
 		args := []string{"open", "--title", title}

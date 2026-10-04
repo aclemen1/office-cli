@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
-// The desk lives in <store>/desk/. Store.Dirs skips it: its name has no number.
+// The desk lives in <office>/desk/. Office.Dirs skips it: its name has no number.
 const deskDir = "desk"
 
 func (a *App) DeskID() string { return a.S.Prefix() + "-DESK" }
@@ -24,13 +24,13 @@ func (a *App) isDesk(id string) bool { return id != "" && a.NormalizeAlias(id) =
 
 func IsDesk(d *dossier.Dossier) bool { return d.State == dossier.Desk }
 
-// Desk loads the store's desk. A desk never started exists only in memory.
+// Desk loads the office's desk. A desk never started exists only in memory.
 func (a *App) Desk() *dossier.Dossier {
 	dir := filepath.Join(a.S.Root, deskDir)
 	if d, err := dossier.Load(dir); err == nil {
 		return d
 	}
-	d := dossier.Create(dir, a.DeskID(), "desk · "+a.S.Config.Store.Sphere)
+	d := dossier.Create(dir, a.DeskID(), "desk · "+a.S.Config.Office.Sphere)
 	d.State = dossier.Desk
 	return d
 }
@@ -41,7 +41,7 @@ func (a *App) ensureDesk(d *dossier.Dossier) error {
 		return err
 	}
 	if _, err := os.Stat(d.Path("CLAUDE.md")); os.IsNotExist(err) {
-		if err := os.WriteFile(d.Path("CLAUDE.md"), []byte(store.DeskCharter), 0o644); err != nil {
+		if err := os.WriteFile(d.Path("CLAUDE.md"), []byte(office.DeskCharter), 0o644); err != nil {
 			return err
 		}
 	}
@@ -66,10 +66,10 @@ func (a *App) LoadAny(id string) (*dossier.Dossier, error) {
 }
 
 func (a *App) deskError() error {
-	return spec.UserError("%s is the store's desk: it has no state, links or sources. Name a dossier, or use `dossier desk`", a.DeskID())
+	return spec.UserError("%s is the office's desk: it has no state, links or sources. Name a dossier, or use `office desk`", a.DeskID())
 }
 
-// ActingDesk is the desk when the current session is this store's desk.
+// ActingDesk is the desk when the current session is this office's desk.
 func (a *App) ActingDesk() *dossier.Dossier {
 	if os.Getenv("DOSSIER_ID") != a.DeskID() {
 		return nil

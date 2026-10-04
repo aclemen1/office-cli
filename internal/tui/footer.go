@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/aclemen1/dossier-cli/internal/dossier"
+import "github.com/aclemen1/office-cli/internal/dossier"
 
 // keyGroup is one theme of the footer: its title and its keys.
 type keyGroup struct {

@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/app"
 )
 
 // Navigation between agents: ' the one docked before, ] the next that needs
@@ -27,7 +27,7 @@ func (m *model) open(i int) tea.Cmd {
 
 func (m *model) rowOf(k docked) int {
 	for i, r := range m.rows {
-		if r.d != nil && r.store.root == k.root && r.d.ID == k.id {
+		if r.d != nil && r.office.root == k.root && r.d.ID == k.id {
 			return i
 		}
 	}
@@ -40,7 +40,7 @@ func (m *model) current() docked {
 		return m.docked
 	}
 	if r := m.selected(); r != nil {
-		return docked{r.store.root, r.d.ID}
+		return docked{r.office.root, r.d.ID}
 	}
 	return docked{}
 }

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 var relHint = "includes (B is part of A: an item of a meeting, a sub-affair) or depends_on (A waits for B)"
@@ -15,7 +15,7 @@ func validRel(rel string) error {
 	if rel == dossier.RelIncludes || rel == dossier.RelDependsOn {
 		return nil
 	}
-	return spec.UserError("--rel %q is not a link type. Use %s. Example: dossier link D-0007 D-0042 --rel includes", rel, relHint)
+	return spec.UserError("--rel %q is not a link type. Use %s. Example: office link D-0007 D-0042 --rel includes", rel, relHint)
 }
 
 // reaches reports whether `to` can reach `target` through edges of rel.
@@ -68,13 +68,13 @@ func (a *App) Link(fromID, toID, rel string) (LinkResult, error) {
 		return LinkResult{}, err
 	}
 	if from.ID == to.ID {
-		return LinkResult{}, spec.UserError("a dossier cannot link to itself (%s). Example: dossier link D-0007 D-0042 --rel %s", from.ID, rel)
+		return LinkResult{}, spec.UserError("a dossier cannot link to itself (%s). Example: office link D-0007 D-0042 --rel %s", from.ID, rel)
 	}
 	if from.HasLink(rel, to.ID) {
 		return LinkResult{From: from.ID, Rel: rel, To: to.ID, Links: from.Links}, nil
 	}
 	if a.reaches(to.ID, from.ID, rel, a.index()) {
-		return LinkResult{}, spec.UserError("%s %s %s would create a cycle: %s already reaches %s through %s links. Check with `dossier tree %s --rel %s`",
+		return LinkResult{}, spec.UserError("%s %s %s would create a cycle: %s already reaches %s through %s links. Check with `office tree %s --rel %s`",
 			from.ID, rel, to.ID, to.ID, from.ID, rel, to.ID, rel)
 	}
 	from.Links = append(from.Links, dossier.Link{Rel: rel, To: to.ID})

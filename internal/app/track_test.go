@@ -53,7 +53,7 @@ func TestRestartClosesAndResumesTheSameSession(t *testing.T) {
 	}
 	light, _ := f.a.Open(OpenParams{Title: "Léger", NoStart: true})
 	ld, _ := f.a.Load(light.ID)
-	if err := f.a.Restart(ld); err == nil || !strings.Contains(err.Error(), "dossier attach") {
+	if err := f.a.Restart(ld); err == nil || !strings.Contains(err.Error(), "office attach") {
 		t.Fatalf("restart without session: %v", err)
 	}
 }

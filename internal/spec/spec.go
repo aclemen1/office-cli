@@ -50,7 +50,7 @@ type Action struct {
 
 type Context struct {
 	Args   map[string]any
-	Store  string // value of --store, possibly empty
+	Office string // value of --office, possibly empty
 	Format string
 	Stdin  io.Reader
 }
@@ -172,7 +172,7 @@ func Parse(a *Action, argv []string) (map[string]any, error) {
 			name, value, hasValue := strings.Cut(arg[2:], "=")
 			p, ok := byName[name]
 			if !ok {
-				return nil, UserError("unknown option --%s for `dossier %s`. Usage: %s", name, a.Name, usage(a))
+				return nil, UserError("unknown option --%s for `office %s`. Usage: %s", name, a.Name, usage(a))
 			}
 			if p.Kind == Bool {
 				out[p.Name] = !hasValue || value == "true"
@@ -196,7 +196,7 @@ func Parse(a *Action, argv []string) (map[string]any, error) {
 			continue
 		}
 		if pos >= len(positionals) {
-			return nil, UserError("unexpected argument %q for `dossier %s`. Usage: %s", arg, a.Name, usage(a))
+			return nil, UserError("unexpected argument %q for `office %s`. Usage: %s", arg, a.Name, usage(a))
 		}
 		p := positionals[pos]
 		if err := checkEnum(a, p, arg); err != nil {
@@ -214,7 +214,7 @@ func Parse(a *Action, argv []string) (map[string]any, error) {
 			continue
 		}
 		if p.Required {
-			return nil, UserError("missing %s for `dossier %s`. Example: %s", describeParam(p), a.Name, firstExample(a))
+			return nil, UserError("missing %s for `office %s`. Example: %s", describeParam(p), a.Name, firstExample(a))
 		}
 		if p.Default != "" {
 			out[p.Name] = p.Default
@@ -255,7 +255,7 @@ func firstExample(a *Action) string {
 }
 
 func usage(a *Action) string {
-	parts := []string{"dossier", a.Name}
+	parts := []string{"office", a.Name}
 	for _, p := range a.Params {
 		var s string
 		switch {

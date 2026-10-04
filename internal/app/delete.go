@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // DeleteResult says where a deleted dossier went.
@@ -29,7 +29,7 @@ func (a *App) Delete(d *dossier.Dossier, note string) (DeleteResult, error) {
 		d.Run.PendingTransitions = nil
 		if n := a.reflect(d, from, dossier.Done, deleteNote(note)); n > 0 {
 			_ = d.Save()
-			return res, spec.UserError("%s: %d source(s) did not withdraw the signal (%s); nothing deleted, or the next ingest would open it again. See `dossier show %s`, then retry",
+			return res, spec.UserError("%s: %d source(s) did not withdraw the signal (%s); nothing deleted, or the next ingest would open it again. See `office show %s`, then retry",
 				d.ID, n, d.Run.PendingTransitions[0].Error, d.ID)
 		}
 	}
@@ -59,7 +59,7 @@ func (a *App) Delete(d *dossier.Dossier, note string) (DeleteResult, error) {
 		res.Unlinked = append(res.Unlinked, x.ID)
 	}
 	if runtime.GOOS == "darwin" {
-		trash := filepath.Join(store.ExpandHome("~/.Trash"), fmt.Sprintf("%s %s %s", d.ID, filepath.Base(d.Dir), time.Now().Format("2006-01-02 15.04.05")))
+		trash := filepath.Join(office.ExpandHome("~/.Trash"), fmt.Sprintf("%s %s %s", d.ID, filepath.Base(d.Dir), time.Now().Format("2006-01-02 15.04.05")))
 		if err := os.MkdirAll(filepath.Dir(trash), 0o700); err != nil {
 			return res, err
 		}

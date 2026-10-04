@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/connector"
 )
 
 func TestTheDeskIsNoDossier(t *testing.T) {

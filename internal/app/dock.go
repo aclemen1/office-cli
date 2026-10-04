@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // herdrCall runs a herdr command that answers JSON. Tests replace it.
@@ -189,7 +189,7 @@ func (a *App) Dock(d *dossier.Dossier, placeholder string, focus bool) error {
 	return nil
 }
 
-// holderOf is the dossier or desk of this store docked in the placeholder's place.
+// holderOf is the dossier or desk of this office docked in the placeholder's place.
 func (a *App) holderOf(placeholder string) *dossier.Dossier {
 	all, _ := a.All()
 	for _, d := range append(all, a.Desk()) {

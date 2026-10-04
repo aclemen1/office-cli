@@ -2,16 +2,16 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""dossier source connector for Apple Reminders flags, through the macos CLI.
+"""office source connector for Apple Reminders flags, through the macos CLI.
 
 An open reminder that is flagged or has any priority is a signal: its title is
-the dossier title, its notes the instruction. Tags split the spheres: a store takes the reminders that carry
+the dossier title, its notes the instruction. Tags split the spheres: an office takes the reminders that carry
 `require_tag`, or the ones that do not carry `exclude_tag`. Closing the dossier
 completes the reminder and clears its flag and priority; reopening it
 uncompletes it and sets the flag.
 
 Protocol 1: `reminders.py describe|poll|transition|claim`, JSON on stdin and stdout.
-claim: a dossier moved to this store; its reminder gets require_tag and loses exclude_tag.
+claim: a dossier moved to this office; its reminder gets require_tag and loses exclude_tag.
 config: require_tag or exclude_tag (tag names without '#'), list (optional).
 """
 import json
@@ -77,7 +77,7 @@ def poll(inp):
         md = (f"---\ntype: Reminder\ntitle: {json.dumps(title, ensure_ascii=False)}\n"
               f"tags: {json.dumps(sorted(tags_of(it)), ensure_ascii=False)}\n"
               f"sources: [{{\"id\": \"reminders:item/{it['id']}\", \"last_modified\": \"{it.get('modifiedAt', '')}\"}}]\n"
-              f"generated: {{\"by\": \"process:dossier-source-reminders\"}}\n---\n"
+              f"generated: {{\"by\": \"process:office-source-reminders\"}}\n---\n"
               f"# {title}\n\nListe : {it.get('list', '')}\n\n{notes}\n")
         signals.append({
             "source_ref": f"reminders:item/{it['id']}",
@@ -109,7 +109,7 @@ def transition(inp):
 
 
 def claim(inp):
-    """Make a reminder that now belongs to this store pass its filter: add
+    """Make a reminder that now belongs to this office pass its filter: add
     require_tag, remove exclude_tag. The other tags stay."""
     cfg, ref = inp.get("config") or {}, inp["source_ref"]
     if not ref.startswith("reminders:item/"):
@@ -124,7 +124,7 @@ def claim(inp):
     if exc:
         want = [t for t in want if t.lower() != exc.lower()]
     if want == tags:
-        return {"ok": True, "detail": "already in this store's filter"}
+        return {"ok": True, "detail": "already in this office's filter"}
     if want:
         macos("reminders", "items", "update", rid, "--tags", ",".join(want))
     else:

@@ -1,4 +1,4 @@
-package store
+package office
 
 import (
 	"os"
@@ -14,7 +14,7 @@ func isolate(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("DOSSIER_STORE", "")
+	t.Setenv("OFFICE_DIR", "")
 	return home
 }
 
@@ -25,12 +25,12 @@ func TestInitWritesAnOKFBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{".dossier/config.toml", ".dossier/prompts/open.md", ".dossier/prompts/event.md", "index.md", ".gitignore"} {
+	for _, rel := range []string{".office/config.toml", ".office/prompts/open.md", ".office/prompts/event.md", "index.md", ".gitignore"} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Errorf("missing %s", rel)
 		}
 	}
-	if s.Config.Store.Sphere != "perso" || len(s.Config.ACP.Command) == 0 || s.Config.ACP.Meta["interaction"] != "native" {
+	if s.Config.Office.Sphere != "perso" || len(s.Config.ACP.Command) == 0 || s.Config.ACP.Meta["interaction"] != "native" {
 		t.Fatalf("config not loaded: %+v", s.Config)
 	}
 	idx, _ := os.ReadFile(filepath.Join(root, "index.md"))
@@ -46,38 +46,38 @@ func TestResolveOrder(t *testing.T) {
 	home := isolate(t)
 	a, _ := Init(filepath.Join(t.TempDir(), "a"), "a", true)
 	b, _ := Init(filepath.Join(t.TempDir(), "b"), "b", false)
-	if _, err := os.Stat(filepath.Join(home, ".config", "dossier", "config.toml")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".config", "office", "config.toml")); err != nil {
 		t.Fatal("--default did not write the user config")
 	}
 	s, err := Resolve("")
 	if err != nil || s.Root != a.Root {
-		t.Fatalf("default store: %v %v", s, err)
+		t.Fatalf("default office: %v %v", s, err)
 	}
-	t.Setenv("DOSSIER_STORE", b.Root)
+	t.Setenv("OFFICE_DIR", b.Root)
 	if s, _ := Resolve(""); s.Root != b.Root {
-		t.Fatalf("DOSSIER_STORE ignored: %s", s.Root)
+		t.Fatalf("OFFICE_DIR ignored: %s", s.Root)
 	}
 	if s, _ := Resolve(a.Root); s.Root != a.Root {
-		t.Fatalf("--store ignored: %s", s.Root)
+		t.Fatalf("--office ignored: %s", s.Root)
 	}
-	t.Setenv("DOSSIER_STORE", "")
+	t.Setenv("OFFICE_DIR", "")
 	wd, _ := os.Getwd()
 	defer os.Chdir(wd)
 	sub := filepath.Join(b.Root, "0001-x", "files")
 	os.MkdirAll(sub, 0o755)
 	os.Chdir(sub)
 	if s, _ := Resolve(""); s.Root != b.Root {
-		t.Fatalf("working directory store ignored: %s", s.Root)
+		t.Fatalf("working directory office ignored: %s", s.Root)
 	}
 }
 
-func TestResolveWithoutStoreExplainsInit(t *testing.T) {
+func TestResolveWithoutOfficeExplainsInit(t *testing.T) {
 	isolate(t)
 	wd, _ := os.Getwd()
 	defer os.Chdir(wd)
 	os.Chdir(t.TempDir())
 	_, err := Resolve("")
-	if err == nil || !strings.Contains(err.Error(), "dossier init") {
+	if err == nil || !strings.Contains(err.Error(), "office init") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -116,7 +116,7 @@ func TestNewDirIsAtomicAndFindDirAcceptsEveryForm(t *testing.T) {
 			t.Errorf("FindDir(%q) = %q, %v", id, got, err)
 		}
 	}
-	if _, err := s.FindDir("99"); err == nil || !strings.Contains(err.Error(), "dossier ls") {
+	if _, err := s.FindDir("99"); err == nil || !strings.Contains(err.Error(), "office ls") {
 		t.Fatalf("unknown id: %v", err)
 	}
 	if _, err := s.FindDir("armoire"); err == nil {
@@ -154,13 +154,13 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
-func TestResolveNamesASiblingStoreBySphere(t *testing.T) {
+func TestResolveNamesASiblingOfficeBySphere(t *testing.T) {
 	root := t.TempDir()
 	perso, _ := Init(filepath.Join(root, "perso"), "perso", false)
 	if _, err := Init(filepath.Join(root, "pro"), "pro", false); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("DOSSIER_STORE", perso.Root)
+	t.Setenv("OFFICE_DIR", perso.Root)
 	s, err := Resolve("pro")
 	if err != nil || filepath.Base(s.Root) != "pro" {
 		t.Fatalf("resolve pro: %v %v", s, err)

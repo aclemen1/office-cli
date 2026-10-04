@@ -76,7 +76,7 @@ func TestAgentSettingsCarryDenyRulesAndHooks(t *testing.T) {
 	b, _ := os.ReadFile(p)
 	json.Unmarshal(b, &s)
 	perms := s["permissions"].(map[string]any)
-	if len(perms["deny"].([]any)) != 2 || perms["allow"].([]any)[0] != "mcp__dossier" {
+	if len(perms["deny"].([]any)) != 2 || perms["allow"].([]any)[0] != "mcp__office" {
 		t.Fatalf("base permissions %v", perms)
 	}
 	if _, ok := s["hooks"].(map[string]any)["PreToolUse"]; ok {

@@ -1,4 +1,4 @@
-package store
+package office
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 )
 
 type Config struct {
-	Store     StoreSection   `toml:"store"`
+	Office    OfficeSection  `toml:"office"`
 	ACP       ACPSection     `toml:"acp"`
 	Agent     AgentSection   `toml:"agent"`
 	Prompt    PromptSection  `toml:"prompt"`
@@ -19,7 +19,7 @@ type Config struct {
 	Sources   []SourceConfig `toml:"source"`
 }
 
-type StoreSection struct {
+type OfficeSection struct {
 	Sphere   string `toml:"sphere"`
 	IDPrefix string `toml:"id_prefix"`
 }

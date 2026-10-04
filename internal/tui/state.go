@@ -9,8 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // The TUI's state lives in the user's config directory, one entry per root,
@@ -34,7 +34,7 @@ type savedState struct {
 	Docked      savedDock `json:"docked,omitempty"`
 	LastDocked  savedDock `json:"last_docked,omitempty"`
 	SideRatio   float64   `json:"side_ratio,omitempty"` // the TUI's share of the width in side mode
-	Pane        string    `json:"pane,omitempty"`       // the herdr pane of the running TUI, for dossier tui-key
+	Pane        string    `json:"pane,omitempty"`       // the herdr pane of the running TUI, for office tui-key
 	AgentsView  bool      `json:"agents_view,omitempty"`
 	StarredView bool      `json:"starred_view,omitempty"`
 }
@@ -44,7 +44,7 @@ func statePath() string {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	return filepath.Join(dir, "dossier", "tui.json")
+	return filepath.Join(dir, "office", "tui.json")
 }
 
 func readStates() map[string]savedState {

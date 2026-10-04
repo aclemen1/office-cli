@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""dossier source connector for Apple Voice Memos, through the macos CLI.
+"""office source connector for Apple Voice Memos, through the macos CLI.
 
 Every memo not yet seen by this connector's macos-cli client is a signal: the
 transcript is the instruction. macos-cli keeps one "seen" cursor per client; the
@@ -66,7 +66,7 @@ def poll(inp):
         title = m.get("title") or "Mémo"
         md = (f"---\ntype: Voice Memo\ntitle: {json.dumps(title, ensure_ascii=False)}\n"
               f"sources: [{{\"id\": \"memos:memo/{m['id']}\", \"last_modified\": \"{m['createdAt']}\"}}]\n"
-              f"generated: {{\"by\": \"process:dossier-source-memos\", \"engine\": \"{engine}\"}}\n---\n"
+              f"generated: {{\"by\": \"process:office-source-memos\", \"engine\": \"{engine}\"}}\n---\n"
               f"# {title}\n\nEnregistré le {m['createdAt']}, {round(m.get('duration', 0))} s.\n\n{text}\n")
         signals.append({
             "source_ref": f"memos:memo/{m['id']}",

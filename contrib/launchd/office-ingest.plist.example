@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs `office ingest` on each office every 15 minutes.
+  Copy to ~/Library/LaunchAgents/, replace YOU and the office list, then:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/aero.clement.office-ingest.plist
+  Stop with:
+    launchctl bootout gui/$(id -u)/aero.clement.office-ingest
+  PATH must reach office, the ACP server (node), herdr and every connector's tools.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>aero.clement.office-ingest</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>L="$HOME/Library/Logs/office-ingest.log"; [ "$(stat -f%z "$L" 2&gt;/dev/null || echo 0)" -gt 1048576 ] &amp;&amp; mv "$L" "$L.1"; for s in "$HOME/offices/perso" "$HOME/offices/pro"; do echo "--- $(date '+%Y-%m-%d %H:%M:%S') $s"; office ingest --office "$s" --format text; done</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/YOU/go/bin:/opt/homebrew/bin:/Users/YOU/.local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/office-ingest.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/office-ingest.log</string>
+</dict>
+</plist>

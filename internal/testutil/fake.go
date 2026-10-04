@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	EnvACP       = "DOSSIER_FAKE_ACP"       // log file of the fake ACP server
-	EnvConnector = "DOSSIER_FAKE_CONNECTOR" // behaviour of the fake connector
-	EnvLog       = "DOSSIER_FAKE_LOG"       // log file of the fake connector
+	EnvACP       = "OFFICE_FAKE_ACP"       // log file of the fake ACP server
+	EnvConnector = "OFFICE_FAKE_CONNECTOR" // behaviour of the fake connector
+	EnvLog       = "OFFICE_FAKE_LOG"       // log file of the fake connector
 )
 
 // Dispatch runs a fake when the environment asks for one, and exits.
@@ -94,7 +94,7 @@ func fakeConnector(mode, logPath string) {
 	input, _ := io.ReadAll(os.Stdin)
 	var in map[string]any
 	_ = json.Unmarshal(input, &in)
-	appendLine(logPath, map[string]any{"verb": verb, "input": in, "env_home": os.Getenv("HOME"), "env_secret": os.Getenv("DOSSIER_TEST_SECRET")})
+	appendLine(logPath, map[string]any{"verb": verb, "input": in, "env_home": os.Getenv("HOME"), "env_secret": os.Getenv("OFFICE_TEST_SECRET")})
 	switch mode {
 	case "empty":
 		return

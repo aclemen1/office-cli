@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // LoadDir loads the dossier whose directory is dir or contains it.
@@ -132,7 +132,7 @@ type Check struct {
 }
 
 type DoctorReport struct {
-	Store  string  `json:"store"`
+	Office string  `json:"office"`
 	Checks []Check `json:"checks"`
 }
 
@@ -150,7 +150,7 @@ func (r DoctorReport) failed() int {
 func (r DoctorReport) PendingTransitions() int { return r.failed() }
 
 func (a *App) Doctor() DoctorReport {
-	rep := DoctorReport{Store: a.S.Root}
+	rep := DoctorReport{Office: a.S.Root}
 	add := func(name string, ok bool, detail string) { rep.Checks = append(rep.Checks, Check{name, ok, detail}) }
 
 	cmd := a.S.Config.ACP.Command
@@ -167,7 +167,7 @@ func (a *App) Doctor() DoctorReport {
 		add("herdr", true, "server reachable")
 	}
 	for _, src := range a.S.Config.Sources {
-		d, err := (connector.Runner{Store: a.S, Source: src}).Describe()
+		d, err := (connector.Runner{Office: a.S, Source: src}).Describe()
 		switch {
 		case err != nil:
 			add("source "+src.Name, false, err.Error())
@@ -182,7 +182,7 @@ func (a *App) Doctor() DoctorReport {
 	for _, d := range all {
 		pending += len(d.Run.PendingTransitions)
 	}
-	add("pending transitions", pending == 0, itoa(pending)+" pending; replay with `dossier retry`")
+	add("pending transitions", pending == 0, itoa(pending)+" pending; replay with `office retry`")
 	s := a.Sessions()
 	detail := fmt.Sprintf("%d running, cap %d", s.Running, s.Cap)
 	if len(s.Stopped) > 0 {

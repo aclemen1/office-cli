@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/testutil"
+	"github.com/aclemen1/office-cli/internal/testutil"
 )
 
 func TestMain(m *testing.M) {

@@ -9,12 +9,12 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // herdr's agent list shows every agent of the session; agent.view.set filters
-// it. The dossiers' view hides the agents of the stores' workspaces, except
+// it. The dossiers' view hides the agents of the offices' workspaces, except
 // those that wait for the user and those of the workspace on screen. herdr
 // forgets the view when its server restarts: the TUI sets it at each start.
 
@@ -24,7 +24,7 @@ func herdrSocket() string {
 	if p := os.Getenv("HERDR_SOCKET_PATH"); p != "" {
 		return p
 	}
-	return store.ExpandHome("~/.config/herdr/herdr.sock")
+	return office.ExpandHome("~/.config/herdr/herdr.sock")
 }
 
 // herdrRequest sends one request on herdr's socket and reads its answer.
@@ -35,7 +35,7 @@ var herdrRequest = func(method string, params any) error {
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
-	b, _ := json.Marshal(map[string]any{"id": "dossier:" + method, "method": method, "params": params})
+	b, _ := json.Marshal(map[string]any{"id": "office:" + method, "method": method, "params": params})
 	if _, err := conn.Write(append(b, '\n')); err != nil {
 		return err
 	}
@@ -54,9 +54,9 @@ var herdrRequest = func(method string, params any) error {
 	return nil
 }
 
-// workspaceLabel is the herdr workspace the store's ACP server places its
+// workspaceLabel is the herdr workspace the office's ACP server places its
 // agents in: the value of --workspace in [acp] command.
-func workspaceLabel(s *store.Store) string {
+func workspaceLabel(s *office.Office) string {
 	cmd := s.Config.ACP.Command
 	for i := 0; i+1 < len(cmd); i++ {
 		if cmd[i] == "--workspace" {
@@ -89,11 +89,11 @@ func workspaceIDs(labels map[string]bool) []string {
 	return ids
 }
 
-// SetAgentView hides the stores' agents from herdr's agent list.
+// SetAgentView hides the offices' agents from herdr's agent list.
 func SetAgentView(roots []string) error {
 	labels := map[string]bool{}
 	for _, root := range roots {
-		if s, err := store.Open(root); err == nil {
+		if s, err := office.Open(root); err == nil {
 			if l := workspaceLabel(s); l != "" {
 				labels[l] = true
 			}
@@ -116,15 +116,15 @@ func ClearAgentView() error {
 	return herdrRequest("agent.view.clear", map[string]any{"source": viewSource})
 }
 
-// HerdrReady checks that herdr is installed and its server answers: dossier
+// HerdrReady checks that herdr is installed and its server answers: office
 // runs its agents in herdr panes and reads their state there.
 func HerdrReady() error {
 	if _, err := exec.LookPath("herdr"); err != nil {
-		return spec.UserError("dossier needs herdr, which is not on the PATH. Install it from https://herdr.dev")
+		return spec.UserError("office needs herdr, which is not on the PATH. Install it from https://herdr.dev")
 	}
 	conn, err := net.DialTimeout("unix", herdrSocket(), time.Second)
 	if err != nil {
-		return spec.UserError("dossier needs a running herdr server; none answers on %s. Start herdr, then retry", herdrSocket())
+		return spec.UserError("office needs a running herdr server; none answers on %s. Start herdr, then retry", herdrSocket())
 	}
 	return conn.Close()
 }

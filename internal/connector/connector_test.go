@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/store"
-	"github.com/aclemen1/dossier-cli/internal/testutil"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -18,17 +18,17 @@ func TestMain(m *testing.M) {
 func runner(t *testing.T, mode, timeout string) (Runner, string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	s, err := store.Init(filepath.Join(t.TempDir(), "s"), "s", false)
+	s, err := office.Init(filepath.Join(t.TempDir(), "s"), "s", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	log := filepath.Join(t.TempDir(), "calls.jsonl")
-	src := store.SourceConfig{
+	src := office.SourceConfig{
 		Name: "fake", Command: []string{os.Args[0]}, Timeout: timeout,
 		Env:    map[string]string{testutil.EnvConnector: mode, testutil.EnvLog: log},
 		Config: map[string]any{"tasklist": "L1"},
 	}
-	return Runner{Store: s, Source: src}, log
+	return Runner{Office: s, Source: src}, log
 }
 
 func TestDescribeAndPoll(t *testing.T) {
@@ -52,7 +52,7 @@ func TestDescribeAndPoll(t *testing.T) {
 }
 
 func TestEnvironmentIsLimited(t *testing.T) {
-	t.Setenv("DOSSIER_TEST_SECRET", "leak")
+	t.Setenv("OFFICE_TEST_SECRET", "leak")
 	r, log := runner(t, "ok", "")
 	if _, err := r.Describe(); err != nil {
 		t.Fatal(err)

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 // ---------------------------------------------------------------- grep
@@ -30,7 +30,7 @@ type GrepHit struct {
 func (a *App) Grep(d *dossier.Dossier, pattern string, limit int) ([]GrepHit, error) {
 	re, err := regexp.Compile("(?i)" + pattern)
 	if err != nil {
-		return nil, spec.UserError("pattern %q is not a valid regular expression: %v. Example: dossier grep D-0042 \"date de passage\"", pattern, err)
+		return nil, spec.UserError("pattern %q is not a valid regular expression: %v. Example: office grep D-0042 \"date de passage\"", pattern, err)
 	}
 	if limit <= 0 {
 		limit = 50

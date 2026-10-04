@@ -5,17 +5,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aclemen1/dossier-cli/internal/actions"
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/spec"
+	"github.com/aclemen1/office-cli/internal/actions"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
-const rootHelp = `dossier — one agent session per affair.
+const rootHelp = `office — one agent session per affair.
 
-Usage: dossier <action> [arguments] [--store <path>] [--format json|text]
+Usage: office <action> [arguments] [--office <path>] [--format json|text]
 
-MESSAGE FOR LLM / AI AGENTS: run ` + "`dossier schema`" + ` to list categories, then
-` + "`dossier schema <category> <action>`" + ` for the exact parameters, examples and
+MESSAGE FOR LLM / AI AGENTS: run ` + "`office schema`" + ` to list categories, then
+` + "`office schema <category> <action>`" + ` for the exact parameters, examples and
 effects of one action. Copy an example from there.
 
 Actions by category:
@@ -26,17 +26,17 @@ func main() {
 }
 
 func run(argv []string) int {
-	var storeFlag, format string
+	var officeFlag, format string
 	help := false
 	var rest []string
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		switch {
-		case a == "--store" && i+1 < len(argv):
-			storeFlag = argv[i+1]
+		case a == "--office" && i+1 < len(argv):
+			officeFlag = argv[i+1]
 			i++
-		case strings.HasPrefix(a, "--store="):
-			storeFlag = strings.TrimPrefix(a, "--store=")
+		case strings.HasPrefix(a, "--office="):
+			officeFlag = strings.TrimPrefix(a, "--office=")
 		case a == "--format" && i+1 < len(argv):
 			format = argv[i+1]
 			i++
@@ -53,7 +53,7 @@ func run(argv []string) int {
 		}
 	}
 	if format != "" && format != "json" && format != "text" {
-		return spec.Emit(nil, "json", nil, spec.UserError("--format takes json or text, got %q. Example: dossier ls --format text", format))
+		return spec.Emit(nil, "json", nil, spec.UserError("--format takes json or text, got %q. Example: office ls --format text", format))
 	}
 	if len(rest) == 0 {
 		printRoot()
@@ -61,7 +61,7 @@ func run(argv []string) int {
 	}
 	act := spec.FindVerb(rest[0])
 	if act == nil {
-		return spec.Emit(nil, format, nil, spec.UserError("unknown action %q. Run `dossier schema` to list actions, for example `dossier ls`", rest[0]))
+		return spec.Emit(nil, format, nil, spec.UserError("unknown action %q. Run `office schema` to list actions, for example `office ls`", rest[0]))
 	}
 	if help {
 		spec.TextSchema(os.Stdout, spec.Leaf{Action: act, Usage: spec.Usage(act)})
@@ -78,13 +78,13 @@ func run(argv []string) int {
 			return spec.Emit(act, format, nil, err)
 		}
 	}
-	result, err := act.Run(&spec.Context{Args: args, Store: storeFlag, Format: format, Stdin: os.Stdin})
+	result, err := act.Run(&spec.Context{Args: args, Office: officeFlag, Format: format, Stdin: os.Stdin})
 	if act.Name == "tui" && err == nil {
 		return 0
 	}
 	if act.Name == "mcp" {
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "dossier mcp:", err)
+			fmt.Fprintln(os.Stderr, "office mcp:", err)
 			return 1
 		}
 		return 0

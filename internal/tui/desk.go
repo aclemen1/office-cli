@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/aclemen1/dossier-cli/internal/app"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 // convAt caches a desk's conversation: reading a long transcript on every
@@ -34,13 +34,13 @@ func (m *model) conversation(d *dossier.Dossier) app.Conversation {
 
 // deskKey handles the keys that mean something else on the desk row.
 func (m *model) deskKey(k string, r *row) (tea.Cmd, bool) {
-	d, root := r.d, r.store.root
+	d, root := r.d, r.office.root
 	switch k {
 	case "enter", "S", "o":
 		m.status, m.statusErr = d.Label()+": opening the desk…", false
 		return run(root, d.ID, "attach"), true
 	case "W", "u", "x", "D", "n", "m":
-		m.status, m.statusErr = d.Label()+" is the store's desk: it has no state", true
+		m.status, m.statusErr = d.Label()+" is the office's desk: it has no state", true
 		return nil, true
 	case "N":
 		if d.Run.Session == "" {
@@ -62,14 +62,14 @@ func (m *model) deskKey(k string, r *row) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// toDesk moves the cursor to the desk of the selected row's store.
+// toDesk moves the cursor to the desk of the selected row's office.
 func (m *model) toDesk() {
 	var root string
 	if r := m.selected(); r != nil {
-		root = r.store.root
+		root = r.office.root
 	}
 	for i, r := range m.rows {
-		if r.desk && (root == "" || r.store.root == root) {
+		if r.desk && (root == "" || r.office.root == root) {
 			m.cursor, m.scroll = i, 0
 			return
 		}
@@ -82,7 +82,7 @@ func (m *model) deskHeader(r row, sel bool, w int) string {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
 	}
 	line := " " + dot + " " + activityMark(r.activity) + "    " + sTitle.Render(strings.ToUpper(r.header)) +
-		sMuted.Render("  desk · "+activityWord(r.activity)) + sFaint.Render("  "+r.store.root)
+		sMuted.Render("  desk · "+activityWord(r.activity)) + sFaint.Render("  "+r.office.root)
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {
 		st = st.Background(cSelBg)
@@ -96,7 +96,7 @@ func (m *model) deskView(r *row, w int, add func(...string)) {
 	field := func(name, value string) { add(label.Render(name) + value) }
 	section := func(name string) { add("", sSection.Render(name), "") }
 
-	add(sTitle.Render(d.Label())+sMuted.Render("  ·  "+r.store.name+" store desk"), "",
+	add(sTitle.Render(d.Label())+sMuted.Render("  ·  "+r.office.name+" office desk"), "",
 		lipgloss.NewStyle().Width(w).Inherit(sText).Render("A lasting session that opens dossiers, notifies them and answers about them. It has no state and never closes."))
 
 	section("Session")
@@ -151,7 +151,7 @@ func legendView(w int, add func(...string)) {
 			{"c  (+)", "new dossier; on an agent without dossier, adopt it"},
 			{"W  u", "wait on someone; resume, or reopen a closed one"},
 			{"e  (x)", "close"}, {"n", "no action for now, or needs action again"},
-			{"s", "star or unstar: first in its store, always at hand"}, {"#  (D)", "delete"},
+			{"s", "star or unstar: first in its office, always at hand"}, {"#  (D)", "delete"},
 		}},
 		{"Agent", [][2]string{
 			{"o  enter", "open the agent's pane; without a session, start it with its prompt"},
@@ -216,7 +216,7 @@ func legendView(w int, add func(...string)) {
 
 	section("Marks")
 	item(lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•"), "unread: the agent ended its turn and you have not looked at it since (herdr); the title is bold")
-	item("⭐", "starred: first in its store, kept in to do even when it waits")
+	item("⭐", "starred: first in its office, kept in to do even when it waits")
 	item(sMuted.Render("⛓"), "blocked by the dossiers named after it")
 	item(sMuted.Render("↻"), "already shown above: the links form a cycle")
 	item(sFaint.Render("└─"), "included by the dossier above")
@@ -227,6 +227,6 @@ func legendView(w int, add func(...string)) {
 	item(lipgloss.NewStyle().Foreground(cWorking).Render("in 2d"), "chase soon; bold: today")
 	item(lipgloss.NewStyle().Foreground(cStopped).Bold(true).Render("2d late"), "the date to chase has passed")
 
-	section("Store line")
-	item(sTitle.Render("PRO"), "the store's desk: b jumps to it, enter opens it")
+	section("Office line")
+	item(sTitle.Render("PRO"), "the office's desk: b jumps to it, enter opens it")
 }

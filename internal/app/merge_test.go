@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
 )
 
 func TestMergeMovesEverythingAndReopensTheTarget(t *testing.T) {

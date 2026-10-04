@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/store"
-	"github.com/aclemen1/dossier-cli/internal/testutil"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -26,12 +26,12 @@ type fixture struct {
 	setMode func(string)
 }
 
-// newFixture builds a store whose ACP server and "fake" source are the fakes.
+// newFixture builds an office whose ACP server and "fake" source are the fakes.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DOSSIER_ID", "")
-	s, err := store.Init(filepath.Join(t.TempDir(), "store"), "test", false)
+	s, err := office.Init(filepath.Join(t.TempDir(), "office"), "test", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,9 +40,9 @@ func newFixture(t *testing.T) *fixture {
 	s.Config.ACP.Env = map[string]string{testutil.EnvACP: f.acpLog}
 	s.Config.Agent.RemoteControl = false
 	s.Config.Lifecycle.CloseTabOn = []string{dossier.Done}
-	src := store.SourceConfig{Name: "fake", Command: []string{os.Args[0]},
+	src := office.SourceConfig{Name: "fake", Command: []string{os.Args[0]},
 		Env: map[string]string{testutil.EnvConnector: "ok", testutil.EnvLog: f.srcLog}}
-	s.Config.Sources = []store.SourceConfig{src}
+	s.Config.Sources = []office.SourceConfig{src}
 	f.setMode = func(mode string) { s.Config.Sources[0].Env[testutil.EnvConnector] = mode }
 	return f
 }
@@ -177,7 +177,7 @@ func TestStateMoves(t *testing.T) {
 		}
 	}
 	_, err := f.a.SetState(d, "resume", "", "")
-	if err == nil || !strings.Contains(err.Error(), "dossier wait") {
+	if err == nil || !strings.Contains(err.Error(), "office wait") {
 		t.Fatalf("invalid move: %v", err)
 	}
 	log, _ := os.ReadFile(d.Path("log.md"))
@@ -471,7 +471,7 @@ func TestLoadDirFindsTheDossierThroughSymlinks(t *testing.T) {
 		t.Fatalf("LoadDir through symlink: %v %v", got, err)
 	}
 	if _, err := f.a.LoadDir(t.TempDir()); err == nil {
-		t.Fatal("a directory outside the store resolved")
+		t.Fatal("a directory outside the office resolved")
 	}
 }
 

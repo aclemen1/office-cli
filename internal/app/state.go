@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aclemen1/dossier-cli/internal/connector"
-	"github.com/aclemen1/dossier-cli/internal/dossier"
-	"github.com/aclemen1/dossier-cli/internal/spec"
-	"github.com/aclemen1/dossier-cli/internal/store"
+	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/dossier"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/spec"
 )
 
 var moves = map[string]struct {
@@ -27,9 +27,9 @@ var moves = map[string]struct {
 }
 
 var verbHint = map[string]string{
-	dossier.Open:    "`dossier wait <id> --on <who>` or `dossier close <id>`",
-	dossier.Waiting: "`dossier resume <id>` or `dossier close <id>`",
-	dossier.Done:    "`dossier reopen <id>`",
+	dossier.Open:    "`office wait <id> --on <who>` or `office close <id>`",
+	dossier.Waiting: "`office resume <id>` or `office close <id>`",
+	dossier.Done:    "`office reopen <id>`",
 	dossier.Merged:  "the dossier it was merged into",
 }
 
@@ -174,10 +174,10 @@ func ParseUntil(s string, now time.Time) (string, error) {
 	if t, err := time.Parse(time.RFC3339, strings.ToUpper(s)); err == nil {
 		return t.Format(time.RFC3339), nil
 	}
-	return "", spec.UserError("--until takes a date (2026-10-09), a duration (7d, 48h) or none; got %q. Example: dossier wait --on \"Baer SA\" --until 7d", s)
+	return "", spec.UserError("--until takes a date (2026-10-09), a duration (7d, 48h) or none; got %q. Example: office wait --on \"Baer SA\" --until 7d", s)
 }
 
-// DefaultWait is the store's wait before a chase prompt: [lifecycle] default_wait, 7d otherwise.
+// DefaultWait is the office's wait before a chase prompt: [lifecycle] default_wait, 7d otherwise.
 func (a *App) DefaultWait() string {
 	if w := strings.TrimSpace(a.S.Config.Lifecycle.DefaultWait); w != "" {
 		return w
@@ -231,11 +231,11 @@ func (a *App) reflect(d *dossier.Dossier, from, to, note string) int {
 		t := dossier.Transition{Source: name, SourceRef: src.ID, ThreadRef: threadFor(d, name), From: from, To: to, Note: note, At: dossier.Now()}
 		cfg, ok := a.S.Config.Source(name)
 		if !ok {
-			t.Error = "no [[source]] named " + name + " in the store config"
+			t.Error = "no [[source]] named " + name + " in the office config"
 			d.Run.PendingTransitions = append(d.Run.PendingTransitions, t)
 			continue
 		}
-		if err := (connector.Runner{Store: a.S, Source: cfg}).Transition(t.SourceRef, t.ThreadRef, from, to, note, connector.Dossier{ID: d.ID, Title: d.Title, WaitingOn: d.WaitingOn}); err != nil {
+		if err := (connector.Runner{Office: a.S, Source: cfg}).Transition(t.SourceRef, t.ThreadRef, from, to, note, connector.Dossier{ID: d.ID, Title: d.Title, WaitingOn: d.WaitingOn}); err != nil {
 			t.Error = err.Error()
 			d.Run.PendingTransitions = append(d.Run.PendingTransitions, t)
 			_ = d.Log("source %s: %s → %s pending (%s)", name, from, to, firstLine(err.Error()))
@@ -260,7 +260,7 @@ func (a *App) Retry(d *dossier.Dossier) int {
 	for _, t := range todo {
 		cfg, ok := a.S.Config.Source(t.Source)
 		if ok {
-			if err := (connector.Runner{Store: a.S, Source: cfg}).Transition(t.SourceRef, t.ThreadRef, t.From, t.To, t.Note, connector.Dossier{ID: d.ID, Title: d.Title}); err == nil {
+			if err := (connector.Runner{Office: a.S, Source: cfg}).Transition(t.SourceRef, t.ThreadRef, t.From, t.To, t.Note, connector.Dossier{ID: d.ID, Title: d.Title}); err == nil {
 				_ = d.Log("source %s: %s → %s delivered on retry", t.Source, t.From, t.To)
 				continue
 			} else {
@@ -288,7 +288,7 @@ type Hit struct {
 func (a *App) Search(query string, states []string, withTranscripts bool) ([]Hit, error) {
 	words := strings.Fields(strings.ToLower(query))
 	if len(words) == 0 {
-		return nil, spec.UserError("search needs words. Example: dossier search \"armoire pharmacie\"")
+		return nil, spec.UserError("search needs words. Example: office search \"armoire pharmacie\"")
 	}
 	all, err := a.All()
 	if err != nil {
@@ -436,7 +436,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 				}
 			}
 		}
-		res, err := (connector.Runner{Store: a.S, Source: src}).Poll(a.cursors()[src.Name], watch, opt)
+		res, err := (connector.Runner{Office: a.S, Source: src}).Poll(a.cursors()[src.Name], watch, opt)
 		if err != nil {
 			rep.Errors = append(rep.Errors, err.Error())
 			reports = append(reports, rep)
@@ -453,7 +453,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			reports = append(reports, rep)
 			continue
 		}
-		// The store is locked only to apply what the source sent: polling, which
+		// The office is locked only to apply what the source sent: polling, which
 		// may take long, leaves it free for the TUI and the agents.
 		if err := a.S.Lock(); err != nil {
 			rep.Errors = append(rep.Errors, err.Error())
@@ -461,7 +461,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			continue
 		}
 		failed := false
-		runner := connector.Runner{Store: a.S, Source: src}
+		runner := connector.Runner{Office: a.S, Source: src}
 		var tells *bool
 		// tell says to a connector that declares "opened" which dossier an item reached.
 		tell := func(sourceRef, threadRef, outcome, id string) {
@@ -561,7 +561,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 	return reports, nil
 }
 
-func sourceNames(s []store.SourceConfig) string {
+func sourceNames(s []office.SourceConfig) string {
 	var n []string
 	for _, x := range s {
 		n = append(n, x.Name)
@@ -581,7 +581,7 @@ func contains(l []string, s string) bool {
 	return false
 }
 
-// Star marks a dossier the user wants at hand: first in its store, shown in
+// Star marks a dossier the user wants at hand: first in its office, shown in
 // every view of its state. Unstar removes the mark.
 func (a *App) Star(d *dossier.Dossier, on bool) error {
 	if IsDesk(d) {

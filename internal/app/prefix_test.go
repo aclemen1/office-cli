@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestStorePrefixNamesDossiersAndGuardsTheSphere(t *testing.T) {
+func TestOfficePrefixNamesDossiersAndGuardsTheSphere(t *testing.T) {
 	f := newFixture(t)
-	f.a.S.Config.Store.IDPrefix = "u"
+	f.a.S.Config.Office.IDPrefix = "u"
 	r, _ := f.a.Open(OpenParams{Title: "Limite de connexions sur les bases PostgreSQL UNISIS", NoStart: true})
 	if r.ID != "U-0001" {
 		t.Fatalf("id %s", r.ID)
@@ -18,7 +18,7 @@ func TestStorePrefixNamesDossiersAndGuardsTheSphere(t *testing.T) {
 		}
 	}
 	_, err := f.a.Load("P-1")
-	if err == nil || !strings.Contains(err.Error(), "belongs to another store") {
+	if err == nil || !strings.Contains(err.Error(), "belongs to another office") {
 		t.Fatalf("foreign id: %v", err)
 	}
 	routed, err := f.a.Open(OpenParams{Title: "Mémo", Instruction: "U-1: relancer le fournisseur", NoStart: true})
@@ -29,7 +29,7 @@ func TestStorePrefixNamesDossiersAndGuardsTheSphere(t *testing.T) {
 
 func TestTabLabel(t *testing.T) {
 	f := newFixture(t)
-	f.a.S.Config.Store.IDPrefix = "P"
+	f.a.S.Config.Office.IDPrefix = "P"
 	f.a.Open(OpenParams{Title: "RDV Dentiste Eve", NoStart: true})
 	f.a.Open(OpenParams{Title: "Limite de connexions sur les bases PostgreSQL UNISIS", NoStart: true})
 	short, _ := f.a.Load("1")
