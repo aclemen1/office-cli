@@ -356,3 +356,26 @@ func TestMCPServesTheDeskItsOwnTools(t *testing.T) {
 		}
 	}
 }
+
+func TestAPermanentDossierIsNotClosedByAccident(t *testing.T) {
+	a := officeWith(t, "OFFICE-DEV")
+	if _, err := runInProcess("permanent", []string{"D-0001"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInProcess("close", []string{"D-0001"}); err == nil || !strings.Contains(err.Error(), "permanent") {
+		t.Fatalf("close of a permanent dossier: %v", err)
+	}
+	if _, err := runInProcess("wait", []string{"D-0001", "--on", "Alain"}); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := a.Load("D-0001")
+	if !d.Permanent || d.WaitUntil != "" {
+		t.Fatalf("a permanent dossier waits without a chase: %+v", d)
+	}
+	if _, err := runInProcess("close", []string{"D-0001", "--force"}); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ = a.Load("D-0001"); d.Permanent || d.State != "done" {
+		t.Fatalf("after close --force: %+v", d)
+	}
+}

@@ -31,7 +31,22 @@ func (s *Office) Meta(parts ...string) string {
 }
 
 type userConfig struct {
-	DefaultOffice string `toml:"default_office"`
+	DefaultOffice string   `toml:"default_office"`
+	Routine       []string `toml:"routine"`
+}
+
+// RoutineCommand is the argv that runs the routine CLI: `routine` in
+// ~/.config/office/config.toml, or routine from the PATH.
+func RoutineCommand() []string {
+	var uc userConfig
+	if _, err := toml.DecodeFile(userConfigPath(), &uc); err == nil && len(uc.Routine) > 0 {
+		out := make([]string, len(uc.Routine))
+		for i, a := range uc.Routine {
+			out[i] = ExpandHome(a)
+		}
+		return out
+	}
+	return []string{"routine"}
 }
 
 func userConfigPath() string {
@@ -78,18 +93,16 @@ func (s *Office) Sibling(prefix string) *Office {
 }
 
 func resolveDefault() (*Office, error) {
+	here := officeOfWorkdir()
 	if c := os.Getenv("OFFICE_DIR"); c != "" {
-		return Open(ExpandHome(c))
-	}
-	if wd, err := os.Getwd(); err == nil {
-		for d := wd; ; d = filepath.Dir(d) {
-			if fi, err := os.Stat(filepath.Join(d, metaDir, "config.toml")); err == nil && !fi.IsDir() {
-				return Open(d)
-			}
-			if filepath.Dir(d) == d {
-				break
-			}
+		s, err := Open(ExpandHome(c))
+		if err == nil && here != "" && here != s.Root {
+			return nil, spec.UserError("this session belongs to %s (OFFICE_DIR), but the working directory is in %s: pass --office to choose", s.Root, here)
 		}
+		return s, err
+	}
+	if here != "" {
+		return Open(here)
 	}
 	var uc userConfig
 	if _, err := toml.DecodeFile(userConfigPath(), &uc); err == nil && uc.DefaultOffice != "" {
@@ -366,4 +379,46 @@ func (s *Office) AddRedirect(id, to, root string) error {
 		return err
 	}
 	return os.WriteFile(s.Meta(redirectsFile), append(b, '\n'), 0o644)
+}
+
+// officeOfWorkdir is the root of the office that holds the working directory,
+// or "".
+func officeOfWorkdir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(wd); err == nil {
+		wd = real
+	}
+	for d := wd; ; d = filepath.Dir(d) {
+		if fi, err := os.Stat(filepath.Join(d, metaDir, "config.toml")); err == nil && !fi.IsDir() {
+			return d
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+// LockSource serializes the ingests of one source: two ingests polling it at
+// once (the periodic one and office listen) would read the same cursor and
+// apply the same items twice. It waits for the other ingest, which may last
+// minutes (a transcription); the returned function releases the lock.
+func (s *Office) LockSource(name string) (func(), error) {
+	if err := os.MkdirAll(s.Meta("run"), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(s.Meta("run", "ingest-"+name+".lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }

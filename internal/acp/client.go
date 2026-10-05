@@ -236,8 +236,10 @@ func (c *Client) LoadSession(id string) (Placement, error) {
 }
 
 // Prompt sends a prompt and returns once the server has started the turn,
-// without waiting for its end.
-func (c *Client) Prompt(session, text string) error {
+// without waiting for its end. delivery goes in _meta: "queue" lets the server
+// hold the prompt until the agent's turn ends, without touching what the user
+// is typing; "now" asks for it at once.
+func (c *Client) Prompt(session, text, delivery string) error {
 	// Updates replayed by session/load say nothing about this prompt.
 	time.Sleep(300 * time.Millisecond)
 	for len(c.updates) > 0 {
@@ -246,6 +248,7 @@ func (c *Client) Prompt(session, text string) error {
 	ch := c.request("session/prompt", map[string]any{
 		"sessionId": session,
 		"prompt":    []map[string]any{{"type": "text", "text": text}},
+		"_meta":     map[string]any{"delivery": delivery},
 	})
 	select {
 	case r := <-ch:
@@ -275,4 +278,29 @@ func (c *Client) Close() {
 	case <-time.After(15 * time.Second):
 		_ = c.cmd.Process.Kill()
 	}
+}
+
+// TailResult is herdr-acp's _session/tail answer: the last updates of a
+// session, in ACP's session/update format, and a cursor for what follows.
+type TailResult struct {
+	Updates []json.RawMessage `json:"updates"`
+	Cursor  string            `json:"cursor"`
+	Reset   bool              `json:"reset,omitempty"`
+	Status  string            `json:"status,omitempty"`
+}
+
+// Tail reads the end of a session without touching it (herdr-acp extension
+// _session/tail). after is the cursor of the previous answer, or "".
+func (c *Client) Tail(session, after string, limit int) (TailResult, error) {
+	var r TailResult
+	params := map[string]any{"sessionId": session, "limit": limit}
+	if after != "" {
+		params["after"] = after
+	}
+	raw, err := c.call("_session/tail", params, 10*time.Second)
+	if err != nil {
+		return r, err
+	}
+	err = json.Unmarshal(raw, &r)
+	return r, err
 }

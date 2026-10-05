@@ -75,6 +75,8 @@ func (a *App) SetState(d *dossier.Dossier, move, note, waitingOn string) (int, e
 	if err := d.Save(); err != nil {
 		return pending, err
 	}
+	a.syncRoutines(d)
+	reportTodo(d)
 	if a.S.Config.ClosesTabOn(m.to) {
 		_ = a.Archive(d)
 		if os.Getenv("DOSSIER_ID") == d.ID {
@@ -104,7 +106,11 @@ func (a *App) Park(d *dossier.Dossier, note string) error {
 		line += " · " + note
 	}
 	_ = d.Log("%s", line)
-	return d.Save()
+	if err := d.Save(); err != nil {
+		return err
+	}
+	reportTodo(d)
+	return nil
 }
 
 // requireAction clears the no-action mark, saying why.
@@ -114,7 +120,11 @@ func (a *App) requireAction(d *dossier.Dossier, why string) error {
 	}
 	d.NoAction = false
 	_ = d.Log("action required · %s", why)
-	return d.Save()
+	if err := d.Save(); err != nil {
+		return err
+	}
+	reportTodo(d)
+	return nil
 }
 
 // Unpark clears the no-action mark by hand.
@@ -423,6 +433,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 		a.S.Unlock()
 	}
 	all, _ := a.All()
+	all = append(all, a.Desk())
 	for _, src := range sources {
 		rep := IngestReport{Source: src.Name}
 		var watch []string
@@ -436,8 +447,19 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 				}
 			}
 		}
+		unlockSource := func() {}
+		if !dryRun {
+			u, err := a.S.LockSource(src.Name)
+			if err != nil {
+				rep.Errors = append(rep.Errors, err.Error())
+				reports = append(reports, rep)
+				continue
+			}
+			unlockSource = u
+		}
 		res, err := (connector.Runner{Office: a.S, Source: src}).Poll(a.cursors()[src.Name], watch, opt)
 		if err != nil {
+			unlockSource()
 			rep.Errors = append(rep.Errors, err.Error())
 			reports = append(reports, rep)
 			continue
@@ -457,6 +479,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 		// may take long, leaves it free for the TUI and the agents.
 		if err := a.S.Lock(); err != nil {
 			rep.Errors = append(rep.Errors, err.Error())
+			unlockSource()
 			reports = append(reports, rep)
 			continue
 		}
@@ -482,6 +505,26 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			}
 		}
 		for _, s := range res.Signals {
+			if src.Signals == "desk" {
+				// The placeholder goes first: it is the user's receipt, and an answer
+				// that comes quickly must find it.
+				if desk := a.Desk(); s.ThreadRef == "" || !desk.HasThread(s.ThreadRef) {
+					a.startProgress(src, desk, s.SourceRef)
+				}
+				r, err := a.toDesk(s)
+				if err != nil {
+					rep.Errors = append(rep.Errors, s.SourceRef+": "+err.Error())
+					failed = true
+					continue
+				}
+				if r.Outcome == "existing" {
+					rep.Skipped = append(rep.Skipped, s.SourceRef+" already with the desk")
+					continue
+				}
+				// The desk is where items go by default: no acknowledgement.
+				rep.Opened = append(rep.Opened, r)
+				continue
+			}
 			r, err := a.Open(OpenParams{Title: s.Title, SourceRef: s.SourceRef, ThreadRef: s.ThreadRef, URL: s.URL,
 				Instruction: s.Instruction, Summary: s.Summary, Files: s.Files, In: s.In})
 			if err != nil {
@@ -518,6 +561,9 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 				summary = map[string]any{}
 			}
 			summary["kind"] = e.Kind
+			if ref, _ := e.Summary["message_ref"].(string); ref != "" {
+				a.startProgress(src, d, ref)
+			}
 			r, err := a.event(d, "", summary, e.Files, false)
 			if err != nil {
 				rep.Errors = append(rep.Errors, d.ID+": "+err.Error())
@@ -525,7 +571,9 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			}
 			r.Outcome = "event"
 			rep.Opened = append(rep.Opened, r)
-			tell(e.ThreadRef, e.ThreadRef, "event", d.ID)
+			if !IsDesk(d) {
+				tell(e.ThreadRef, e.ThreadRef, "event", d.ID)
+			}
 		}
 		if !failed && res.Cursor != "" {
 			if err := a.saveCursor(src.Name, res.Cursor); err != nil {
@@ -533,6 +581,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			}
 		}
 		a.S.Unlock()
+		unlockSource()
 		reports = append(reports, rep)
 	}
 	if !dryRun {
@@ -557,6 +606,9 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			reports = append(reports, rep)
 		}
 		a.S.Unlock()
+	}
+	if !dryRun {
+		a.ReportTodos()
 	}
 	return reports, nil
 }
@@ -595,6 +647,24 @@ func (a *App) Star(d *dossier.Dossier, on bool) error {
 		_ = d.Log("starred")
 	} else {
 		_ = d.Log("unstarred")
+	}
+	return d.Save()
+}
+
+// SetPermanent marks a lasting dossier (a channel, a recurring meeting): it is
+// not closed, and waits without a chase by default.
+func (a *App) SetPermanent(d *dossier.Dossier, on bool) error {
+	if IsDesk(d) {
+		return a.deskError()
+	}
+	if d.Permanent == on {
+		return nil
+	}
+	d.Permanent = on
+	if on {
+		_ = d.Log("permanent")
+	} else {
+		_ = d.Log("no longer permanent")
 	}
 	return d.Save()
 }

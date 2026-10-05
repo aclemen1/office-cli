@@ -27,7 +27,7 @@ func (m *model) footer() []keyGroup {
 		item = [][2]string{{"c", "adopt as a dossier"}}
 		agent = [][2]string{{"o", "go to its tab"}}
 	case r != nil && r.desk:
-		item = [][2]string{{"c", "new dossier"}}
+		item = [][2]string{{"c", "new dossier"}, {"E", "edit the charter"}}
 		agent = [][2]string{{"o", "open the desk"}}
 		if m.side {
 			agent = append(agent, [2]string{"O", "show, keep focus"})
@@ -64,7 +64,7 @@ func (m *model) footer() []keyGroup {
 		} else {
 			item = append(item, [2]string{"s", "star"})
 		}
-		item = append(item, [2]string{"T", "title"}, [2]string{"A", "alias"}, [2]string{"c", "new"}, [2]string{"#", "delete"})
+		item = append(item, [2]string{"T", "title"}, [2]string{"A", "alias"}, [2]string{"P", "permanent"}, [2]string{"E", "edit the fiche"}, [2]string{"c", "new"}, [2]string{"#", "delete"})
 	default:
 		item = [][2]string{{"c", "new dossier"}}
 	}
@@ -87,6 +87,13 @@ func (m *model) footer() []keyGroup {
 	}
 	if m.detailOverflows && (!m.noDetail || m.legend) {
 		nav = append(nav, [2]string{"J K", "scroll detail"})
+	}
+	if m.tail != nil && !m.noDetail {
+		word := "live: oldest first"
+		if m.liveOldestFirst {
+			word = "live: newest first"
+		}
+		nav = append(nav, [2]string{"l", word})
 	}
 
 	detailWord := "hide detail"

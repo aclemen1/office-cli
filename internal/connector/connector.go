@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aclemen1/office-cli/internal/office"
 )
@@ -62,26 +63,28 @@ type Runner struct {
 }
 
 func (r Runner) run(verb string, input any, out any) error {
+	return r.runFor(verb, input, out, r.Source.TimeoutDuration())
+}
+
+func (r Runner) runFor(verb string, input any, out any, timeout time.Duration) error {
 	src := r.Source
-	if len(src.Command) == 0 {
-		return fmt.Errorf("source %q has no command in %s", src.Name, r.Office.Meta("config.toml"))
-	}
-	argv := append([]string{}, src.Command...)
-	for i := range argv {
-		argv[i] = office.ExpandHome(argv[i])
-	}
-	for i, a := range argv {
-		if i > 0 && !filepath.IsAbs(a) && !strings.HasPrefix(a, "-") {
-			if p := filepath.Join(r.Office.Root, a); fileExists(p) {
-				argv[i] = p
+	if s := serverFor(r.Office, src.Name); s != nil {
+		if raw, err := s.call(verb, input, timeout); err != errServerGone {
+			if err != nil {
+				return fmt.Errorf("source %q: %s failed: %w", src.Name, verb, err)
 			}
+			if err := json.Unmarshal(raw, out); err != nil {
+				return fmt.Errorf("source %q: %s returned invalid JSON: %v", src.Name, verb, err)
+			}
+			return nil
 		}
 	}
-	if p := filepath.Join(r.Office.Root, argv[0]); !filepath.IsAbs(argv[0]) && strings.Contains(argv[0], "/") && fileExists(p) {
-		argv[0] = p
+	argv, err := r.argv()
+	if err != nil {
+		return err
 	}
 	argv = append(argv, verb)
-	ctx, cancel := context.WithTimeout(context.Background(), src.TimeoutDuration())
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = r.Office.Root
@@ -101,7 +104,7 @@ func (r Runner) run(verb string, input any, out any) error {
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("source %q: %s timed out after %s", src.Name, verb, src.TimeoutDuration())
+		return fmt.Errorf("source %q: %s timed out after %s", src.Name, verb, timeout)
 	}
 	body := bytes.TrimSpace(stdout.Bytes())
 	if len(body) == 0 {
@@ -199,4 +202,86 @@ func (r Runner) Claim(sourceRef string) (string, error) {
 	}
 	err := r.run("claim", map[string]any{"config": r.Source.Config, "source_ref": sourceRef}, &out)
 	return out.Detail, err
+}
+
+// SendResult names the threads the message opened, one per recipient.
+type SendResult struct {
+	OK         bool     `json:"ok"`
+	ThreadRefs []string `json:"thread_refs"`
+	Sent       int      `json:"sent"`
+}
+
+// Send writes a text and files to the user through the source. The
+// connector chooses the recipient itself (the user, never anyone else).
+// Optional verb: call it only when describe lists "send".
+func (r Runner) Send(text string, files []File, replace []string) (SendResult, error) {
+	var out SendResult
+	if files == nil {
+		files = []File{}
+	}
+	if replace == nil {
+		replace = []string{}
+	}
+	err := r.run("send", map[string]any{"config": r.Source.Config, "text": text, "files": files, "replace": replace}, &out)
+	return out, err
+}
+
+// Wait blocks until the source holds something new after cursor, or until
+// seconds pass, without taking anything: the next poll does. Optional verb:
+// call it only when describe lists "wait".
+func (r Runner) Wait(cursor string, seconds int) (bool, error) {
+	var out struct {
+		Ready bool `json:"ready"`
+	}
+	err := r.runFor("wait", map[string]any{"config": r.Source.Config, "cursor": cursor, "timeout": seconds},
+		&out, time.Duration(seconds+30)*time.Second)
+	return out.Ready, err
+}
+
+// Progress drives a placeholder that tells the user their item is being
+// handled: op "start" answers the item at ref and returns the placeholder,
+// "update" shows text in it, "end" closes it. Optional verb: call it only when
+// describe lists "progress".
+func (r Runner) Progress(op, ref, placeholder, text string) (string, error) {
+	var out struct {
+		Placeholder string `json:"placeholder"`
+	}
+	err := r.run("progress", map[string]any{"config": r.Source.Config, "op": op, "ref": ref, "placeholder": placeholder, "text": text}, &out)
+	return out.Placeholder, err
+}
+
+// argv is the connector's command, ~ expanded, paths relative to the office resolved.
+func (r Runner) argv() ([]string, error) {
+	src := r.Source
+	if len(src.Command) == 0 {
+		return nil, fmt.Errorf("source %q has no command in %s", src.Name, r.Office.Meta("config.toml"))
+	}
+	argv := append([]string{}, src.Command...)
+	for i := range argv {
+		argv[i] = office.ExpandHome(argv[i])
+	}
+	for i, a := range argv {
+		if i > 0 && !filepath.IsAbs(a) && !strings.HasPrefix(a, "-") {
+			if p := filepath.Join(r.Office.Root, a); fileExists(p) {
+				argv[i] = p
+			}
+		}
+	}
+	if p := filepath.Join(r.Office.Root, argv[0]); !filepath.IsAbs(argv[0]) && strings.Contains(argv[0], "/") && fileExists(p) {
+		argv[0] = p
+	}
+	return argv, nil
+}
+
+func (r Runner) env() []string {
+	env := []string{}
+	for _, k := range []string{"HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "PATH", "TMPDIR"} {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	for k, v := range r.Source.Env {
+		env = append(env, k+"="+office.ExpandHome(v))
+	}
+	return env
 }

@@ -218,14 +218,15 @@ func BlockedBy(d *dossier.Dossier, idx map[string]*dossier.Dossier) []string {
 }
 
 type TreeNode struct {
-	Rel       string     `json:"rel,omitempty"`
-	ID        string     `json:"id"`
-	Label     string     `json:"label"`
-	Title     string     `json:"title"`
-	State     string     `json:"state"`
-	BlockedBy []string   `json:"blocked_by,omitempty"`
-	Children  []TreeNode `json:"children,omitempty"`
-	Seen      bool       `json:"seen_above,omitempty"`
+	Rel            string     `json:"rel,omitempty"`
+	ID             string     `json:"id"`
+	Label          string     `json:"label"`
+	Title          string     `json:"title"`
+	State          string     `json:"state"`
+	BlockedBy      []string   `json:"blocked_by,omitempty"`
+	BlockedByNames []string   `json:"blocked_by_names,omitempty"`
+	Children       []TreeNode `json:"children,omitempty"`
+	Seen           bool       `json:"seen_above,omitempty"`
 }
 
 func (a *App) Tree(d *dossier.Dossier, rel string, depth int) TreeNode {
@@ -233,6 +234,7 @@ func (a *App) Tree(d *dossier.Dossier, rel string, depth int) TreeNode {
 	var walk func(x *dossier.Dossier, via string, level int, path map[string]bool) TreeNode
 	walk = func(x *dossier.Dossier, via string, level int, path map[string]bool) TreeNode {
 		n := TreeNode{Rel: via, ID: x.ID, Label: x.Label(), Title: x.Title, State: x.State, BlockedBy: BlockedBy(x, idx)}
+		n.BlockedByNames = BlockerNames(n.BlockedBy, idx)
 		if path[x.ID] {
 			n.Seen = true
 			return n
@@ -274,4 +276,17 @@ func (a *App) notifyDependents(d *dossier.Dossier) {
 			_ = x.Log("could not notify session: %v", err)
 		}
 	}
+}
+
+// BlockerNames shows the dossiers that block another: an alias keeps its id
+// beside it, P-OFFICE-DEV (P-0019).
+func BlockerNames(ids []string, idx map[string]*dossier.Dossier) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id
+		if d := idx[id]; d != nil && d.Alias != "" {
+			out[i] = d.Label() + " (" + id + ")"
+		}
+	}
+	return out
 }

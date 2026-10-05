@@ -28,7 +28,7 @@ func TestTheAgentViewHidesTheOfficesWorkspaces(t *testing.T) {
 	if err := SetAgentView([]string{s.Root}); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`agent.view.set`, `"values":["w5R"]`, `"values":["blocked","done"]`, `"current_workspace_id"`} {
+	for _, want := range []string{`agent.view.set`, `"values":["w5R"]`, `"values":["blocked","done"]`, `"current_workspace_id"`, `{"token":"office_todo"}`} {
 		if !strings.Contains(sent, want) {
 			t.Fatalf("missing %s in %s", want, sent)
 		}
@@ -60,5 +60,33 @@ func TestHerdrReadyNeedsTheBinaryAndAServer(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if err := HerdrReady(); err == nil || !strings.Contains(err.Error(), "not on the PATH") {
 		t.Fatalf("no binary: %v", err)
+	}
+}
+
+func TestTodoTokenFollowsTheDossier(t *testing.T) {
+	f := newFixture(t)
+	var sent []string
+	herdrRequest = func(method string, params any) error {
+		b, _ := json.Marshal(params)
+		sent = append(sent, string(b))
+		return nil
+	}
+	f.a.Open(OpenParams{Title: "Briefing", NoStart: true})
+	d := mustGet(t, f, "1")
+	d.Run.PaneID = "w1:p9"
+	d.Save()
+	reportTodo(d)
+	if len(sent) != 1 || !strings.Contains(sent[0], `"office_todo":"1"`) || !strings.Contains(sent[0], `"pane_id":"w1:p9"`) {
+		t.Fatalf("open dossier: %v", sent)
+	}
+	reportTodo(d)
+	if len(sent) != 1 {
+		t.Fatal("the same token went out twice")
+	}
+	if err := f.a.Park(d, ""); err != nil {
+		t.Fatal(err)
+	}
+	if last := sent[len(sent)-1]; !strings.Contains(last, `"office_todo":null`) {
+		t.Fatalf("a parked dossier keeps its token: %v", sent)
 	}
 }

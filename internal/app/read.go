@@ -28,19 +28,20 @@ func (a *App) LoadDir(dir string) (*dossier.Dossier, error) {
 }
 
 type Row struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	State     string   `json:"state"`
-	Activity  string   `json:"activity"`
-	WaitingOn string   `json:"waiting_on,omitempty"`
-	WaitUntil string   `json:"wait_until,omitempty"`
-	Alias     string   `json:"alias,omitempty"`
-	Label     string   `json:"label"`
-	NoAction  bool     `json:"no_action,omitempty"`
-	Starred   bool     `json:"starred,omitempty"`
-	Updated   string   `json:"updated"`
-	Pending   int      `json:"pending_transitions,omitempty"`
-	BlockedBy []string `json:"blocked_by,omitempty"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	State          string   `json:"state"`
+	Activity       string   `json:"activity"`
+	WaitingOn      string   `json:"waiting_on,omitempty"`
+	WaitUntil      string   `json:"wait_until,omitempty"`
+	Alias          string   `json:"alias,omitempty"`
+	Label          string   `json:"label"`
+	NoAction       bool     `json:"no_action,omitempty"`
+	Starred        bool     `json:"starred,omitempty"`
+	Updated        string   `json:"updated"`
+	Pending        int      `json:"pending_transitions,omitempty"`
+	BlockedBy      []string `json:"blocked_by,omitempty"`
+	BlockedByNames []string `json:"blocked_by_names,omitempty"`
 }
 
 // List lists dossiers by state; with in, only the dossiers that one includes.
@@ -86,7 +87,7 @@ func (a *App) List(status, in string) ([]Row, error) {
 			continue
 		}
 		rows = append(rows, Row{ID: d.ID, Title: d.Title, State: d.State, Activity: Activity(d, panesNow),
-			WaitingOn: d.WaitingOn, WaitUntil: d.WaitUntil, Alias: d.Alias, Label: d.Label(), NoAction: d.NoAction, Starred: d.Starred, Updated: d.Updated, Pending: len(d.Run.PendingTransitions), BlockedBy: BlockedBy(d, idx)})
+			WaitingOn: d.WaitingOn, WaitUntil: d.WaitUntil, Alias: d.Alias, Label: d.Label(), NoAction: d.NoAction, Starred: d.Starred, Updated: d.Updated, Pending: len(d.Run.PendingTransitions), BlockedBy: BlockedBy(d, idx), BlockedByNames: BlockerNames(BlockedBy(d, idx), idx)})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	return rows, nil
@@ -96,6 +97,7 @@ type ShowResult struct {
 	*dossier.Dossier
 	Activity string   `json:"activity"`
 	Session  string   `json:"session,omitempty"`
+	RunsOn   string   `json:"runs_on,omitempty"` // the model its session takes
 	TabID    string   `json:"tab_id,omitempty"`
 	Files    []string `json:"files"`
 	Body     string   `json:"body"`
@@ -107,7 +109,7 @@ type ShowResult struct {
 }
 
 func (a *App) Show(d *dossier.Dossier) ShowResult {
-	r := ShowResult{Dossier: d, Activity: Activity(d, Panes()), Session: d.Run.Session, TabID: d.Run.TabID, Files: []string{}}
+	r := ShowResult{Dossier: d, Activity: Activity(d, Panes()), RunsOn: a.ModelOf(d), Session: d.Run.Session, TabID: d.Run.TabID, Files: []string{}}
 	for _, sub := range []string{"context", "files"} {
 		entries, _ := os.ReadDir(d.Path(sub))
 		for _, e := range entries {

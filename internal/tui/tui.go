@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/aclemen1/office-cli/internal/acp"
 	"github.com/aclemen1/office-cli/internal/app"
 	"github.com/aclemen1/office-cli/internal/dossier"
 	"github.com/aclemen1/office-cli/internal/office"
@@ -64,13 +65,20 @@ type model struct {
 	listW           int
 	listH           int
 	detailW         int
-	detailOverflows bool  // the detail panel has more lines than room, as last drawn
-	legend          bool  // the detail panel shows what marks and colours mean
-	agentsView      bool  // g n: only the agents that no dossier holds
-	starredView     bool  // g s: only the starred dossiers
-	jump            *jump // the « : » picker, nil when closed
-	gPending        bool  // g was typed: the next key goes somewhere
-	side            bool  // enter docks the agent at the TUI's right
+	detailOverflows bool    // the detail panel has more lines than room, as last drawn
+	legend          bool    // the detail panel shows what marks and colours mean
+	agentsView      bool    // g n: only the agents that no dossier holds
+	starredView     bool    // g s: only the starred dossiers
+	jump            *jump   // the « : » picker, nil when closed
+	tail            *tailer // preview of the selected dossier's session
+	tailBusy        bool
+	tailCache       map[string]*tailer     // previews of the last sessions seen
+	tailConns       map[string]*acp.Client // one ACP connection per office root
+	liveOldestFirst bool                   // l: the preview reads from the oldest entry
+	headH           int                    // lines the header shows
+	headAt          time.Time              // when headH last changed
+	gPending        bool                   // g was typed: the next key goes somewhere
+	side            bool                   // enter docks the agent at the TUI's right
 	placeholder     string
 	docked          docked
 	lastDocked      docked  // the one before, for '
@@ -125,7 +133,7 @@ func (m *model) spinning() bool {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(tick(), spin(time.Second), m.start, tea.RequestBackgroundColor)
+	return tea.Batch(tick(), spin(time.Second), tailTick(), m.start, tea.RequestBackgroundColor)
 }
 
 func (m *model) selected() *row {
@@ -141,6 +149,11 @@ func (m *model) reload() {
 		key = m.rows[m.cursor].key()
 	}
 	m.rows, m.offices, m.errs = load(m.roots, view{all: m.all, todo: m.todo, filter: m.filter, byPerson: m.byPerson, byPriority: m.byPriority, agentsView: m.agentsView, starred: m.starredView, docked: m.dockedKey()})
+	for _, sv := range m.offices {
+		for _, d := range sv.all {
+			app.ReportTodo(d)
+		}
+	}
 	m.syncDocked()
 	// The agent shown at the right is being looked at.
 	for i := range m.rows {
@@ -295,6 +308,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.BackgroundColorMsg:
 		darkBackground = msg.IsDark()
+	case tailTickMsg:
+		return m, tea.Batch(tailTick(), m.tailNext())
+	case tailMsg:
+		m.tailed(msg)
+	case editedMsg:
+		m.edited(msg)
 	case tea.FocusMsg:
 		paneFocused = true
 	case tea.BlurMsg:
@@ -480,6 +499,12 @@ func (m *model) key(k string) tea.Cmd {
 		m.byPerson, m.todo = !m.byPerson, false
 		m.offset = 0
 		m.reload()
+	case "l":
+		m.liveOldestFirst = !m.liveOldestFirst
+		m.status, m.statusErr = "live: newest first", false
+		if m.liveOldestFirst {
+			m.status = "live: oldest first"
+		}
 	case "/":
 		m.typing = true
 	case ":", ";":
@@ -546,6 +571,21 @@ func (m *model) key(k string) tea.Cmd {
 		}
 		m.status, m.statusErr = r.d.Label()+": restarting its session…", false
 		return run(r.office.root, r.d.ID, "restart")
+	case "E":
+		if r == nil {
+			break
+		}
+		return m.editFiche(r)
+	case "P":
+		if r == nil || r.desk {
+			break
+		}
+		if r.d.Permanent {
+			m.status, m.statusErr = r.d.Label()+": no longer permanent", false
+			return run(r.office.root, r.d.ID, "permanent", "--clear")
+		}
+		m.status, m.statusErr = r.d.Label()+": permanent", false
+		return run(r.office.root, r.d.ID, "permanent")
 	case "A":
 		if r == nil || r.desk {
 			break
@@ -654,6 +694,8 @@ func activityMark(a string) string {
 		return lipgloss.NewStyle().Foreground(cWorking).Bold(true).Render("●")
 	case "idle":
 		return lipgloss.NewStyle().Foreground(cReady).Render("●")
+	case "asking":
+		return activityMark("ready")
 	case "blocked":
 		return lipgloss.NewStyle().Foreground(cStopped).Bold(true).Render("◆")
 	case "stopped":
@@ -672,6 +714,8 @@ func activityWord(a string) string {
 		return "no tab"
 	case "ready":
 		return "your turn"
+	case "asking":
+		return "asks you a question"
 	case "blocked":
 		return "asks a permission"
 	}
@@ -699,6 +743,7 @@ func (m *model) render() string {
 		return ""
 	}
 	top, bottom := m.topBar(m.width-2), m.bottomBar(m.width-2)
+	top = m.steadyHeader(top)
 	h := max(3, m.height-len(top)-len(bottom)-3)
 	m.listY = 2 + len(top)
 	var body string
@@ -910,13 +955,13 @@ func (m *model) rowView(r row, sel bool, w int) string {
 	if d.Starred {
 		star = "⭐"
 	}
-	prefix := " " + dot + " " + activityMark(r.activity) + " " + star + " " + label + "  " + state + " " + m.waitCell(d) + sFaint.Render(tree.String())
+	prefix := " " + leadCell(r.activity, dot) + markCell(r.activity) + star + " " + label + "  " + state + " " + m.waitCell(d) + sFaint.Render(tree.String())
 	var tail []string
 	if r.cycle {
 		tail = append(tail, "↻ cycle")
 	}
 	if len(r.blocked) > 0 {
-		tail = append(tail, "⛓ "+strings.Join(r.blocked, " "))
+		tail = append(tail, "⛓ "+strings.Join(app.BlockerNames(r.blocked, r.office.byID), " "))
 	}
 	suffix := ""
 	if len(tail) > 0 {
@@ -1079,8 +1124,13 @@ func (m *model) detailView(w, h int) string {
 		field("state", stateStyle(d.State).Render(d.State))
 	}
 	field("agent", activityMark(r.activity)+" "+sText.Render(activityWord(r.activity)))
+	if r.office != nil && r.office.a != nil {
+		if mdl := r.office.a.ModelOf(d); mdl != "" {
+			field("model", sText.Render(mdl))
+		}
+	}
 	if len(r.blocked) > 0 {
-		field("blocked by", lipgloss.NewStyle().Foreground(cStopped).Render(strings.Join(r.blocked, ", ")))
+		field("blocked by", lipgloss.NewStyle().Foreground(cStopped).Render(strings.Join(app.BlockerNames(r.blocked, r.office.byID), ", ")))
 	}
 	if n := len(d.Run.PendingTransitions); n > 0 {
 		field("pending", lipgloss.NewStyle().Foreground(cStopped).Render(fmt.Sprintf("%d source transition(s): office retry %s", n, d.ID)))
@@ -1092,6 +1142,10 @@ func (m *model) detailView(w, h int) string {
 	}
 	if d.Run.TabID != "" {
 		field("tab", sText.Render(d.Run.TabID))
+	}
+	if live := m.tailView(r, w); live != nil {
+		section(m.liveTitle())
+		add(live...)
 	}
 
 	if ls := links(r.office, d); len(ls) > 0 {
@@ -1257,4 +1311,42 @@ func edge(rels string, relW int, id, title, state string, w int) string {
 	st := stateStyle(state).Render(state)
 	room := w - lipgloss.Width(head) - lipgloss.Width(st) - 2
 	return head + link(sText).Render(truncate(title, room)) + "  " + st
+}
+
+// markCell is the agent's mark in a cell two columns wide: 🖖 takes both.
+func markCell(a string) string {
+	m := activityMark(a)
+	if lipgloss.Width(m) < 2 {
+		m += " "
+	}
+	return m
+}
+
+// leadCell is the two columns before the agent's mark: 🖖 when the agent asks
+// a question, else the unread dot.
+func leadCell(activity, dot string) string {
+	if activity == "asking" {
+		return "🖖"
+	}
+	return dot + " "
+}
+
+// headerHold keeps the header's height for a moment after it changed: a
+// click aimed at the screen as it was must not land one row off.
+const headerHold = time.Second
+
+// steadyHeader pads or trims the header to the height it had, until it has
+// kept its new height for headerHold.
+func (m *model) steadyHeader(top []string) []string {
+	n := len(top)
+	switch {
+	case m.headH == 0:
+		m.headH, m.headAt = n, time.Now()
+	case n != m.headH && time.Since(m.headAt) >= headerHold:
+		m.headH, m.headAt = n, time.Now()
+	}
+	for len(top) < m.headH {
+		top = append(top, "")
+	}
+	return top[:m.headH]
 }

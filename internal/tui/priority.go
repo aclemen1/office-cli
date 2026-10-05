@@ -32,7 +32,7 @@ func urgencyOf(d *dossier.Dossier, activity string, now time.Time) urgency {
 	switch {
 	case d.State == dossier.Done || d.State == dossier.Merged:
 		return urgency{rankClosed, d.ID}
-	case activity == "ready" || activity == "blocked":
+	case activity == "ready" || activity == "blocked" || activity == "asking":
 		return urgency{rankYourTurn, utc(d.Updated)}
 	case d.State == dossier.Waiting:
 		if t, err := time.Parse(time.RFC3339, d.WaitUntil); err == nil {

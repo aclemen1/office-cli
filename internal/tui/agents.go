@@ -28,7 +28,7 @@ func (m *model) agentKey(k string, ag *app.AgentPane) (tea.Cmd, bool) {
 	case "+":
 		m.adopt(ag)
 		return nil, true
-	case "W", "u", "x", "D", "n", "m", "s", "o", "R", "N", "A", "T":
+	case "W", "u", "x", "D", "n", "m", "s", "o", "R", "N", "A", "T", "P", "E":
 		m.status, m.statusErr = "this agent has no dossier yet: + adopts it", true
 		return nil, true
 	}
@@ -81,7 +81,7 @@ func (m *model) adopt(ag *app.AgentPane) {
 
 func (m *model) agentRowView(r row, sel bool, w int) string {
 	ag := r.agent
-	line := "   " + activityMark(r.activity) + "    " + sBold.Render(truncate(filepath.Base(ag.Cwd), 18)) + "  " +
+	line := "   " + markCell(r.activity) + "   " + sBold.Render(truncate(filepath.Base(ag.Cwd), 18)) + "  " +
 		sText.Render(truncate(ag.Title, w-30))
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {

@@ -36,6 +36,14 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{a: &App{S: s}, acpLog: filepath.Join(t.TempDir(), "acp.jsonl"), srcLog: filepath.Join(t.TempDir(), "src.jsonl")}
+	oldRoutine := routineCall
+	routineCall = func(string, ...string) ([]byte, error) { return nil, errNoRoutine }
+	oldReq := herdrRequest
+	herdrRequest = func(string, any) error { return nil }
+	todoMu.Lock()
+	todoSent = map[string]todoReport{}
+	todoMu.Unlock()
+	t.Cleanup(func() { routineCall, herdrRequest = oldRoutine, oldReq })
 	s.Config.ACP.Command = []string{os.Args[0]}
 	s.Config.ACP.Env = map[string]string{testutil.EnvACP: f.acpLog}
 	s.Config.Agent.RemoteControl = false
@@ -493,5 +501,27 @@ func TestShowReturnsTheBody(t *testing.T) {
 	d, _ := f.a.Load("1")
 	if body := f.a.Show(d).Body; !strings.Contains(body, "Tenir l'ordre du jour") {
 		t.Fatalf("body %q", body)
+	}
+}
+
+func TestModelOfFollowsTheDossierThenTheOffice(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Factures", NoStart: true})
+	d := mustGet(t, f, "1")
+	if f.a.ModelOf(d) != "" {
+		t.Fatal("no model was set anywhere")
+	}
+	f.a.S.Config.Agent.Model, f.a.S.Config.Agent.DeskModel = "claude-sonnet-5-5", "claude-opus-5-5"
+	if f.a.ModelOf(d) != "claude-sonnet-5-5" || f.a.ModelOf(f.a.Desk()) != "claude-opus-5-5" {
+		t.Fatalf("office defaults: %s / %s", f.a.ModelOf(d), f.a.ModelOf(f.a.Desk()))
+	}
+	if err := f.a.SetModel(d, "claude-opus-5-5"); err != nil {
+		t.Fatal(err)
+	}
+	if d = mustGet(t, f, "1"); f.a.ModelOf(d) != "claude-opus-5-5" {
+		t.Fatalf("own model: %s", f.a.ModelOf(d))
+	}
+	if err := f.a.SetModel(f.a.Desk(), "x"); err == nil {
+		t.Fatal("the desk's model is the office's desk_model")
 	}
 }

@@ -151,3 +151,20 @@ func TestTheFicheRendersItsMarkdown(t *testing.T) {
 		t.Fatal("the rendering should come from the cache the second time")
 	}
 }
+
+func TestHeaderKeepsItsHeightForAMoment(t *testing.T) {
+	m := &model{}
+	if got := m.steadyHeader([]string{"a", "b"}); len(got) != 2 {
+		t.Fatalf("first %v", got)
+	}
+	if got := m.steadyHeader([]string{"a"}); len(got) != 2 {
+		t.Fatalf("shrank at once: %v", got)
+	}
+	if got := m.steadyHeader([]string{"a", "b", "c"}); len(got) != 2 {
+		t.Fatalf("grew at once: %v", got)
+	}
+	m.headAt = m.headAt.Add(-2 * headerHold)
+	if got := m.steadyHeader([]string{"a"}); len(got) != 1 {
+		t.Fatalf("after the hold: %v", got)
+	}
+}

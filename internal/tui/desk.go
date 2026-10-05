@@ -81,7 +81,7 @@ func (m *model) deskHeader(r row, sel bool, w int) string {
 	if r.unread {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
 	}
-	line := " " + dot + " " + activityMark(r.activity) + "    " + sTitle.Render(strings.ToUpper(r.header)) +
+	line := " " + leadCell(r.activity, dot) + markCell(r.activity) + "   " + sTitle.Render(strings.ToUpper(r.header)) +
 		sMuted.Render("  desk · "+activityWord(r.activity)) + sFaint.Render("  "+r.office.root)
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {
@@ -101,6 +101,11 @@ func (m *model) deskView(r *row, w int, add func(...string)) {
 
 	section("Session")
 	field("agent", activityMark(r.activity)+" "+sText.Render(activityWord(r.activity)))
+	if r.office != nil && r.office.a != nil {
+		if mdl := r.office.a.ModelOf(d); mdl != "" {
+			field("model", sText.Render(mdl))
+		}
+	}
 	if d.Run.Session == "" {
 		add("", sMuted.Render("enter starts the desk."))
 	} else {
@@ -118,6 +123,10 @@ func (m *model) deskView(r *row, w int, add func(...string)) {
 		if d.Run.TabID != "" {
 			field("tab", sText.Render(d.Run.TabID))
 		}
+	}
+	if live := m.tailView(r, w); live != nil {
+		section(m.liveTitle())
+		add(live...)
 	}
 
 	section("Keys")
@@ -154,6 +163,8 @@ func legendView(w int, add func(...string)) {
 			{"s", "star or unstar: first in its office, always at hand"}, {"#  (D)", "delete"},
 			{"T", "rename: title, tab and directory; a running session restarts"},
 			{"A", "alias: set, change, or empty to remove"},
+			{"P", "permanent or not: a lasting dossier (∞) is not closed and comes first"},
+			{"E", "edit the fiche in $EDITOR, here; on the desk, its charter. Once saved, you choose whether its agent is told"},
 		}},
 		{"Agent", [][2]string{
 			{"o  enter", "open the agent's pane; without a session, start it with its prompt"},
@@ -177,6 +188,7 @@ func legendView(w int, add func(...string)) {
 			{"f", "the detail panel's links: j k choose, enter opens (a dossier, a file, an address); a click opens too"},
 		}},
 		{"View", [][2]string{
+			{"l", "the Live section of the detail panel: newest first, or oldest first"},
 			{"v", "side mode: agents open at the TUI's right"},
 			{"tab", "hide or show the detail panel"},
 			{"L", "detail panel at the right, below, or by width"},
@@ -202,11 +214,16 @@ func legendView(w int, add func(...string)) {
 		{"working", "working (it spins)"},
 		{"ready", "your turn: the turn ended, it waits for you"},
 		{"idle", "idle"},
+		{"asking", "asks you a question: 🖖 before the dot"},
 		{"blocked", "asks a permission"},
 		{"stopped", "no tab: the session is resumable"},
 		{"none", "no session yet"},
 	} {
-		item(activityMark(a.act), a.text)
+		mark := activityMark(a.act)
+		if a.act == "asking" {
+			mark = "🖖" + mark
+		}
+		item(mark, a.text)
 	}
 
 	section("State, the coloured word")

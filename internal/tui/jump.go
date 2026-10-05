@@ -19,10 +19,11 @@ import (
 // jump is the « : » picker: it ranks every dossier of every office against a
 // fuzzy query, alias first, then title, then the fiche's content.
 type jump struct {
-	in   textinput.Model
-	hits []jumpHit
-	sel  int
-	back string // pane that had the focus before `tui-key --focus :`
+	index []jumpEntry
+	in    textinput.Model
+	hits  []jumpHit
+	sel   int
+	back  string // pane that had the focus before `tui-key --focus :`
 }
 
 type jumpHit struct {
@@ -31,6 +32,7 @@ type jumpHit struct {
 	field  string // alias, title or content
 	score  int
 	closed bool
+	desk   bool
 }
 
 var foldT = transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
@@ -90,26 +92,58 @@ func contentScore(q, text string) int {
 	return len(words)
 }
 
+// jumpEntry is a dossier with its texts folded once, when the picker opens:
+// folding every fiche at each key made typing slow.
+type jumpEntry struct {
+	sv                   *officeView
+	d                    *dossier.Dossier
+	desk                 bool
+	key, id, title, body string
+}
+
+func jumpIndex(offices []*officeView) []jumpEntry {
+	var out []jumpEntry
+	for _, sv := range offices {
+		if sv.a != nil {
+			desk := sv.a.Desk()
+			out = append(out, jumpEntry{sv: sv, d: desk, desk: true, key: fold("desk " + sv.name + " " + desk.ID)})
+		}
+		for _, d := range sv.all {
+			out = append(out, jumpEntry{sv: sv, d: d, key: fold(d.Alias + " " + d.ID), id: fold(d.ID), title: fold(d.Title), body: fold(d.Body())})
+		}
+	}
+	return out
+}
+
 func rankJump(offices []*officeView, query string) []jumpHit {
+	return rankIndex(jumpIndex(offices), query)
+}
+
+func rankIndex(index []jumpEntry, query string) []jumpHit {
 	q := fold(strings.TrimSpace(query))
 	var hits []jumpHit
-	for _, sv := range offices {
-		for _, d := range sv.all {
-			h := jumpHit{sv: sv, d: d, closed: d.State == dossier.Done || d.State == dossier.Merged}
-			switch {
-			case q == "":
-				h.field = "title"
-			case fuzzy(q, fold(d.Alias+" "+d.ID)) >= 0 && (d.Alias != "" || strings.Contains(fold(d.ID), q)):
-				h.field, h.score = "alias", fuzzy(q, fold(d.Alias+" "+d.ID))
-			case fuzzy(q, fold(d.Title)) >= 0:
-				h.field, h.score = "title", fuzzy(q, fold(d.Title))
-			case contentScore(q, fold(d.Body())) >= 0:
-				h.field, h.score = "content", contentScore(q, fold(d.Body()))
-			default:
-				continue
+	for _, e := range index {
+		if e.desk {
+			if q == "" || fuzzy(q, e.key) >= 0 {
+				hits = append(hits, jumpHit{sv: e.sv, d: e.d, field: "alias", score: fuzzy(q, e.key) + 50, desk: true})
 			}
-			hits = append(hits, h)
+			continue
 		}
+		d := e.d
+		h := jumpHit{sv: e.sv, d: d, closed: d.State == dossier.Done || d.State == dossier.Merged}
+		switch {
+		case q == "":
+			h.field = "title"
+		case fuzzy(q, e.key) >= 0 && (d.Alias != "" || strings.Contains(e.id, q)):
+			h.field, h.score = "alias", fuzzy(q, e.key)
+		case fuzzy(q, e.title) >= 0:
+			h.field, h.score = "title", fuzzy(q, e.title)
+		case contentScore(q, e.body) >= 0:
+			h.field, h.score = "content", contentScore(q, e.body)
+		default:
+			continue
+		}
+		hits = append(hits, h)
 	}
 	tier := map[string]int{"alias": 0, "title": 1, "content": 2}
 	sort.SliceStable(hits, func(i, j int) bool {
@@ -130,7 +164,8 @@ func rankJump(offices []*officeView, query string) []jumpHit {
 
 func (m *model) startJump() {
 	m.jump = &jump{in: newInput(""), back: takeReturn()}
-	m.jump.hits = rankJump(m.offices, "")
+	m.jump.index = jumpIndex(m.offices)
+	m.jump.hits = rankIndex(m.jump.index, "")
 }
 
 // jumpKey edits the query like any field (cursor, words, paste); up and down
@@ -169,7 +204,7 @@ func (m *model) jumpKey(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	j.in, cmd = j.in.Update(msg)
 	if j.in.Value() != before {
-		j.hits, j.sel = rankJump(m.offices, j.in.Value()), 0
+		j.hits, j.sel = rankIndex(j.index, j.in.Value()), 0
 	}
 	return cmd
 }
@@ -218,6 +253,9 @@ func (m *model) jumpView(w, h int) string {
 		act := app.Activity(x.d, x.sv.live)
 		tail := "  " + sFaint.Render(padRight(x.field, 8)) + sMuted.Render(padRight(x.sv.name, officeW))
 		r := row{office: x.sv, d: x.d, activity: act, unread: unreadOf(x.sv, x.d, act)}
+		if x.desk {
+			r.header, r.desk = x.sv.name, true
+		}
 		line := m.rowView(r, false, w-1-lipgloss.Width(tail)) + tail
 		if i == j.sel {
 			line = selectLine(line, w-1)

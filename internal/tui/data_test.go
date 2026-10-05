@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -608,5 +609,90 @@ func TestTheDetailPanelsLinksOpen(t *testing.T) {
 	m.detailView(80, 200)
 	if l, ok := m.linkAt(10 + m.links[0].line); !ok || l != m.links[0] {
 		t.Fatal("a click on a link's line finds the link")
+	}
+}
+
+func TestTailLinesSumUpASession(t *testing.T) {
+	raw := []string{
+		`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Relance la gérance\nmerci"}}`,
+		`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Je rédige le brouillon."}}`,
+		`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Create draft","status":"in_progress"}`,
+		`{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}`,
+		`{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"failed"}`,
+		`{"sessionUpdate":"plan","entries":[{"status":"completed"},{"status":"pending"}]}`,
+	}
+	var ups []json.RawMessage
+	for _, r := range raw {
+		ups = append(ups, json.RawMessage(r))
+	}
+	var got []string
+	for _, l := range tailLines(ups) {
+		got = append(got, l.kind+":"+l.text)
+	}
+	want := "user:Relance la gérance\nmerci,agent:Je rédige le brouillon.,tool:Create draft,failed:failed,plan:plan 1/2"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("got %s", strings.Join(got, ","))
+	}
+}
+
+func TestTailViewShowsTheLatestInFullAndFirst(t *testing.T) {
+	sv := &officeView{root: "/o"}
+	r := &row{office: sv, d: &dossier.Dossier{ID: "P-1", Run: dossier.RunState{Session: "s"}}}
+	m := &model{tail: &tailer{key: "/o|P-1|s", lines: []tailLine{{kind: "tool", text: "Read file"}, {kind: "agent", text: "Ligne un\nLigne deux\nLigne trois"}}}}
+	out := strings.Join(m.tailView(r, 60), "\n")
+	if !strings.Contains(out, "Ligne trois") || strings.Index(out, "Ligne un") > strings.Index(out, "Read file") {
+		t.Fatalf("newest first, in full:\n%s", out)
+	}
+	m.liveOldestFirst = true
+	if out = strings.Join(m.tailView(r, 60), "\n"); strings.Index(out, "Read file") > strings.Index(out, "Ligne un") {
+		t.Fatalf("oldest first:\n%s", out)
+	}
+}
+
+func TestTailLinesReadPeerMessagesAndToolNames(t *testing.T) {
+	ups := []json.RawMessage{
+		json.RawMessage(`{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"<cross-session-message from=\"uds:/tmp/x.sock\" from-name=\"U-DESK\" from-mode=\"prompting\">\nP-0028 suit les outils.\n</cross-session-message>"}}`),
+		json.RawMessage(`{"sessionUpdate":"tool_call","toolCallId":"a","title":"mcp__office__notify"}`),
+		json.RawMessage(`{"sessionUpdate":"tool_call","toolCallId":"b","title":"SendMessage"}`),
+	}
+	got := tailLines(ups)
+	if len(got) != 2 || got[0].kind != "peer" || got[0].text != "U-DESK\x00P-0028 suit les outils." || got[1].text != "office notify · SendMessage" {
+		t.Fatalf("got %+v", got)
+	}
+	out := strings.Join(renderTailLine(got[0], 60, false, false), "")
+	if !strings.Contains(out, "U-DESK") || strings.Contains(out, "cross-session") {
+		t.Fatalf("peer line %q", out)
+	}
+}
+
+func TestTailCacheKeepsTheLastSessionsSeen(t *testing.T) {
+	m := &model{}
+	sv := &officeView{root: "/o"}
+	for i := 0; i <= tailCached; i++ {
+		id := "P-" + strconv.Itoa(i)
+		tl := m.tailFor("/o|"+id+"|s", &row{office: sv, d: &dossier.Dossier{ID: id}})
+		tl.touched = time.Unix(int64(i), 0)
+	}
+	if len(m.tailCache) != tailCached {
+		t.Fatalf("cache %d", len(m.tailCache))
+	}
+	if _, ok := m.tailCache["/o|P-0|s"]; ok {
+		t.Fatal("the least recently seen session was kept")
+	}
+	again := m.tailFor("/o|P-5|s", &row{office: sv, d: &dossier.Dossier{ID: "P-5"}})
+	if m.tailCache["/o|P-5|s"] != again {
+		t.Fatal("a cached session was rebuilt")
+	}
+}
+
+func TestTailLinesCarryTheServersTime(t *testing.T) {
+	ups := []json.RawMessage{json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Fait."},"_meta":{"timestamp":"2026-10-05T12:34:56Z"}}`)}
+	got := tailLines(ups)
+	if len(got) != 1 || got[0].at.IsZero() {
+		t.Fatalf("no time: %+v", got)
+	}
+	line := strings.Join(renderTailLine(got[0], 60, false, true), "")
+	if !strings.Contains(line, got[0].at.Local().Format("15:04")) {
+		t.Fatalf("line %q", line)
 	}
 }

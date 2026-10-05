@@ -36,8 +36,8 @@ func (a *App) Retitle(id, title string) (RetitleResult, error) {
 
 	num, _, _ := strings.Cut(filepath.Base(d.Dir), "-")
 	newDir := filepath.Join(a.S.Root, num+"-"+dossier.Slug(title))
-	running := false
-	if newDir != d.Dir {
+	running, renamed := false, newDir != d.Dir
+	if renamed {
 		if _, err := os.Stat(newDir); err == nil {
 			return res, spec.UserError("%s already exists", newDir)
 		}
@@ -73,6 +73,9 @@ func (a *App) Retitle(id, title string) (RetitleResult, error) {
 		return res, err
 	}
 	_ = d.Log("title %q → %q", old, title)
+	if renamed {
+		res.Warnings = append(res.Warnings, a.retargetRoutines(d)...)
+	}
 	if running {
 		if err := a.resume(d); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("session not restarted (%v); `office start %s` resumes it", err, d.ID))

@@ -24,21 +24,22 @@ type savedDock struct {
 }
 
 type savedState struct {
-	All         bool      `json:"all,omitempty"`
-	Todo        bool      `json:"todo,omitempty"`
-	ByPerson    bool      `json:"by_person,omitempty"`
-	ByPriority  bool      `json:"by_priority"`
-	NoDetail    bool      `json:"no_detail,omitempty"`
-	Layout      string    `json:"layout,omitempty"`
-	Filter      string    `json:"filter,omitempty"`
-	Cursor      string    `json:"cursor,omitempty"`
-	Side        bool      `json:"side"`
-	Docked      savedDock `json:"docked,omitempty"`
-	LastDocked  savedDock `json:"last_docked,omitempty"`
-	SideRatio   float64   `json:"side_ratio,omitempty"` // the TUI's share of the width in side mode
-	Pane        string    `json:"pane,omitempty"`       // the herdr pane of the running TUI, for office tui-key
-	AgentsView  bool      `json:"agents_view,omitempty"`
-	StarredView bool      `json:"starred_view,omitempty"`
+	All             bool      `json:"all,omitempty"`
+	Todo            bool      `json:"todo,omitempty"`
+	ByPerson        bool      `json:"by_person,omitempty"`
+	ByPriority      bool      `json:"by_priority"`
+	NoDetail        bool      `json:"no_detail,omitempty"`
+	Layout          string    `json:"layout,omitempty"`
+	Filter          string    `json:"filter,omitempty"`
+	Cursor          string    `json:"cursor,omitempty"`
+	Side            bool      `json:"side"`
+	Docked          savedDock `json:"docked,omitempty"`
+	LastDocked      savedDock `json:"last_docked,omitempty"`
+	SideRatio       float64   `json:"side_ratio,omitempty"` // the TUI's share of the width in side mode
+	Pane            string    `json:"pane,omitempty"`       // the herdr pane of the running TUI, for office tui-key
+	AgentsView      bool      `json:"agents_view,omitempty"`
+	StarredView     bool      `json:"starred_view,omitempty"`
+	LiveOldestFirst bool      `json:"live_oldest_first,omitempty"`
 }
 
 func statePath() string {
@@ -74,6 +75,7 @@ func (m *model) state() savedState {
 	}
 	s.AgentsView = m.agentsView
 	s.StarredView = m.starredView
+	s.LiveOldestFirst = m.liveOldestFirst
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		s.Cursor = m.rows[m.cursor].key()
 	}
@@ -110,6 +112,7 @@ func (m *model) restore(s savedState, side bool) tea.Cmd {
 	m.sideRatio = s.SideRatio
 	m.agentsView = s.AgentsView
 	m.starredView = s.StarredView
+	m.liveOldestFirst = s.LiveOldestFirst
 	m.reload()
 	for i, r := range m.rows {
 		if s.Cursor != "" && r.selectable() && r.key() == s.Cursor {

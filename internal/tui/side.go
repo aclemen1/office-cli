@@ -101,7 +101,7 @@ func (m *model) dock(r *row, focus bool) tea.Cmd {
 		m.lastDocked = prev
 	}
 	m.docked = next
-	m.dockedReady = r.activity == "ready" || r.activity == "blocked"
+	m.dockedReady = r.activity == "ready" || r.activity == "blocked" || r.activity == "asking"
 	m.status, m.statusErr = r.d.Label()+": docking its agent…", false
 	return func() tea.Msg {
 		if prev.id != "" {
@@ -145,6 +145,10 @@ func (m *model) mouse(ev tea.MouseMsg) tea.Cmd {
 	i := m.offset + msg.Y - m.listY
 	if i >= len(m.rows) || !m.rows[i].selectable() {
 		return nil
+	}
+	if m.side && m.rows[i].d != nil {
+		m.cursor, m.scroll = i, 0
+		return m.dock(&m.rows[i], true)
 	}
 	if i != m.cursor {
 		m.cursor, m.scroll = i, 0
@@ -282,16 +286,13 @@ func (m *model) dockedKey() string {
 }
 
 // titleSeg names the TUI in the top bar: bright when it has the focus, dimmed
-// when another pane has it, with the docked agent named in side mode.
+// when another pane has it. Its width never changes: a header that wraps
+// differently on focus would shift the rows under a click.
 func (m *model) titleSeg() string {
 	if paneFocused {
 		return sTitle.Render("office")
 	}
-	s := sFaint.Render("office")
-	if m.side && m.docked.id != "" {
-		s += sMuted.Render("  focus → ") + lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render(m.docked.id)
-	}
-	return s
+	return sFaint.Render("office")
 }
 
 // isDocked says whether the row's agent is the one shown at the right.
@@ -311,6 +312,9 @@ func labelCell(d *dossier.Dossier, w int) string {
 	if d.Alias != "" {
 		s += " " + sMuted.Render(d.ID)
 	}
+	if d.Permanent {
+		s += " " + lipgloss.NewStyle().Foreground(cAccent).Render("∞")
+	}
 	if pad := w - labelWidth(d); pad > 0 {
 		s += strings.Repeat(" ", pad)
 	}
@@ -318,8 +322,12 @@ func labelCell(d *dossier.Dossier, w int) string {
 }
 
 func labelWidth(d *dossier.Dossier) int {
+	w := lipgloss.Width(d.Label())
 	if d.Alias != "" {
-		return lipgloss.Width(d.Label()) + 1 + lipgloss.Width(d.ID)
+		w += 1 + lipgloss.Width(d.ID)
 	}
-	return lipgloss.Width(d.Label())
+	if d.Permanent {
+		w += 2
+	}
+	return w
 }

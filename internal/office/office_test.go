@@ -189,3 +189,23 @@ func TestANumberIsNeverGivenTwice(t *testing.T) {
 		t.Fatalf("a redirected number was given again: %d", n)
 	}
 }
+
+func TestSessionOfficeAndWorkdirMustAgree(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := t.TempDir()
+	perso, _ := Init(filepath.Join(base, "perso"), "perso", false)
+	pro, _ := Init(filepath.Join(base, "pro"), "pro", false)
+	t.Setenv("OFFICE_DIR", perso.Root)
+	t.Chdir(pro.Root)
+	if _, err := Resolve(""); err == nil {
+		t.Fatal("a session of perso acted on pro from its directory without --office")
+	}
+	t.Chdir(perso.Root)
+	if s, err := Resolve(""); err != nil || s.Root != perso.Root {
+		t.Fatalf("same office %v %v", s, err)
+	}
+	t.Chdir(pro.Root)
+	if s, err := Resolve(pro.Root); err != nil || s.Root != pro.Root {
+		t.Fatalf("--office wins %v %v", s, err)
+	}
+}

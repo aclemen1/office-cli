@@ -34,11 +34,16 @@ office's prefix: P-0042 and U-0042 are in different offices.
 | Open a dossier | `office open --title "…" --instruction "…" [--file <path>]` |
 | Add it to another dossier, e.g. a meeting | `--in <id or alias>` on `open`, or `office link <holder> <id> --rel includes` |
 | Tell a dossier something new | `office notify <from> <to> --text "…"` |
+| Send a text to the user (Telegram); a reply comes back as an event | `office tell <id|desk> --text "…"` or `--file brief.md` |
 | Escalate to the desk what goes beyond a dossier (a rule, a skill) | `office escalate <from> --text "…"` |
 | Wait on someone outside | `office wait <id> --on "<who>" [--until 2026-10-15\|7d]` |
 | Nothing to do for now | `office park <id> --note "…"` |
+| The model of a dossier's session, when the user asks (next start) | `office model <id> claude-opus-5-5` (`--clear`: the office's default) |
+| A lasting dossier (a channel, a recurring meeting), when the user asks: not closed, waits without a chase | `office permanent <id>` (`--clear` removes it) |
 | Keep a dossier at hand, when the user asks | `office star <id>` (`unstar` removes it) |
 | Move dossiers to another office, when the user asks | `office move <id>... --to <sphere>` |
+| Schedule a routine, after the user agreed (session, agent or command runner) | `office routine add <id> <name> --rrule "FREQ=DAILY;BYHOUR=7" --prompt "…"` |
+| A dossier's routines; every routine of the office | `office routine ls <id>`, `office routine ls --all` |
 | Skills every session of the office gets | `office skills [add <path> \| remove <name>]` |
 | Show its session to the user | `office attach <id>` |
 | Rename a dossier, when the user asks (title, tab, directory) | `office retitle <id> --title "…"` |

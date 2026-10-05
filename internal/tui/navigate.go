@@ -64,7 +64,7 @@ func attention(r row) int {
 	switch {
 	case r.d == nil || r.d.Run.Session == "":
 		return -1
-	case r.activity == "blocked":
+	case r.activity == "blocked" || r.activity == "asking":
 		return 0
 	case r.activity == "ready":
 		return 1

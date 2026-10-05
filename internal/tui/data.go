@@ -345,6 +345,9 @@ func treeRows(sv *officeView, ds []*dossier.Dossier, live map[string]string, v v
 // less puts lasting dossiers (with an alias) first, then open before waiting
 // before closed, then by number.
 func less(a, b *dossier.Dossier) bool {
+	if a.Permanent != b.Permanent {
+		return a.Permanent
+	}
 	if (a.Alias != "") != (b.Alias != "") {
 		return a.Alias != ""
 	}

@@ -91,6 +91,32 @@ func fakeACP(logPath string) {
 // Modes: ok, empty, error, slow, fail-transition.
 func fakeConnector(mode, logPath string) {
 	verb := os.Args[len(os.Args)-1]
+	if verb == "serve" {
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			var req struct {
+				ID   int            `json:"id"`
+				Verb string         `json:"verb"`
+				In   map[string]any `json:"input"`
+			}
+			if json.Unmarshal(sc.Bytes(), &req) != nil {
+				continue
+			}
+			appendLine(logPath, map[string]any{"verb": req.Verb, "input": req.In, "served": true})
+			var result any = map[string]any{"ok": true}
+			switch req.Verb {
+			case "wait":
+				result = map[string]any{"ready": false}
+			case "progress":
+				result = map[string]any{"ok": true, "placeholder": "fake:message/ph1"}
+			case "boom":
+				os.Exit(3)
+			}
+			b, _ := json.Marshal(map[string]any{"id": req.ID, "result": result})
+			fmt.Println(string(b))
+		}
+		return
+	}
 	input, _ := io.ReadAll(os.Stdin)
 	var in map[string]any
 	_ = json.Unmarshal(input, &in)
@@ -106,7 +132,7 @@ func fakeConnector(mode, logPath string) {
 	}
 	switch verb {
 	case "describe":
-		fmt.Print(`{"name":"fake","protocol":1,"verbs":["describe","poll","transition","claim"]}`)
+		fmt.Print(`{"name":"fake","protocol":1,"verbs":["describe","poll","transition","claim","send","wait","progress"]}`)
 	case "poll":
 		watch, _ := in["watch"].([]any)
 		events := []any{}
@@ -129,8 +155,14 @@ func fakeConnector(mode, logPath string) {
 			"events": events, "cursor": "cursor-2",
 		})
 		fmt.Print(string(b))
+	case "progress":
+		fmt.Print(`{"ok":true,"placeholder":"fake:message/ph1"}`)
+	case "wait":
+		fmt.Print(`{"ready":true}`)
 	case "claim":
 		fmt.Print(`{"ok":true,"detail":"tagged"}`)
+	case "send":
+		fmt.Print(`{"ok":true,"thread_refs":["fake:thread/told/thread-reply"],"sent":1}`)
 	case "transition":
 		if mode == "fail-transition" {
 			fmt.Print(`{"error":{"message":"gmail unavailable"}}`)

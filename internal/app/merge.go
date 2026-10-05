@@ -251,6 +251,7 @@ func (a *App) Merge(fromID, intoID string) (MergeResult, error) {
 	if err := from.Save(); err != nil {
 		return MergeResult{}, err
 	}
+	a.syncRoutines(from)
 	if os.Getenv("DOSSIER_ID") == from.ID {
 		_ = a.closeTabLater(from, 8*time.Second)
 	} else {

@@ -20,10 +20,11 @@ type tool struct {
 	self                      []string          // params that default to DOSSIER_ID
 	rename                    map[string]string // action param → tool param
 	hide                      []string
-	dossierOnly               bool   // not served to the desk's session
-	deskOnly                  bool   // served only to the desk's session
-	deskDescription           string // replaces description on the desk
-	endsSelf                  bool   // ends the calling session when it names its own dossier
+	dossierOnly               bool           // not served to the desk's session
+	deskOnly                  bool           // served only to the desk's session
+	deskDescription           string         // replaces description on the desk
+	endsSelf                  bool           // ends the calling session when it names its own dossier
+	fixed                     map[string]any // action params the tool sets itself, not shown
 }
 
 var tools = []tool{
@@ -38,6 +39,8 @@ var tools = []tool{
 	{name: "resume", action: "resume", self: []string{"id"}, hide: []string{"prompt"}, description: "Bring a waiting dossier back to open."},
 	{name: "park", action: "park", self: []string{"id"}, description: "Mark a dossier as needing no action from the user for now, e.g. an item to raise at the next meeting. Anything new on it clears the mark."},
 	{name: "unpark", action: "unpark", self: []string{"id"}, description: "Mark a dossier as needing action from the user again."},
+	{name: "permanent", action: "permanent", self: []string{"id"}, description: "Mark a lasting dossier (a channel, a recurring meeting), or with clear unmark it, when the user asks: it is not closed, and waits without a chase by default. Once a point is handled, park it."},
+	{name: "model", action: "model", self: []string{"id"}, description: "Show the model of a dossier's session, or, when the user asks, set its own (e.g. claude-opus-5-5 for development, claude-sonnet-5-5 for follow-up) or clear it back to the office's default. The session takes it at its next start."},
 	{name: "star", action: "star", self: []string{"id"}, description: "Star a dossier the user wants at hand: first in its office, always shown. Only when the user asks."},
 	{name: "unstar", action: "unstar", self: []string{"id"}, description: "Remove a dossier's star, when the user asks."},
 	{name: "close", action: "close", self: []string{"id"}, description: "Close a dossier once the user says it is settled."},
@@ -56,8 +59,23 @@ var tools = []tool{
 	{name: "notify", action: "notify", self: []string{"from"}, description: "Tell another dossier something: a decision, new information, a request. Its session gets it as a prompt."},
 	{name: "start", action: "start", endsSelf: true, description: "Start a dossier's session when it is stopped, or restart it when it runs (same conversation, current binary). Name the dossier, or desk."},
 	{name: "skills", action: "skills", deskOnly: true, description: "List the skills every session of the office gets, or add or remove one when the user asked. Sessions see the change at their next start."},
+	{name: "routines", action: "routine", self: []string{"id"}, fixed: map[string]any{"verb": "ls"}, hide: []string{"name", "rrule", "runner", "command", "prompt", "prompt-file", "states", "dtstart", "timeout", "step"},
+		description: "List a dossier's routines (scheduled prompts or commands), or with all every routine of the office: name, active or paused, runner, states, next run."},
+	{name: "routine_show", action: "routine", self: []string{"id"}, fixed: map[string]any{"verb": "show"}, hide: []string{"rrule", "runner", "command", "prompt", "prompt-file", "states", "dtstart", "timeout", "all", "step"},
+		description: "Show one routine of a dossier: schedule, runner, prompt, upcoming and last runs."},
+	{name: "routine_add", action: "routine", self: []string{"id"}, fixed: map[string]any{"verb": "add"}, hide: []string{"all", "prompt-file"},
+		description: "Add a routine to a dossier (or to desk), only after the user agreed to it: at the times of its RRULE, it prompts the dossier's session (runner session, default), an ephemeral agent in the dossier's directory (agent), or runs a command there (command). It runs while the dossier is in one of its states (open and waiting by default). A routine sends nothing without review, except to the user himself."},
+	{name: "routine_edit", action: "routine", self: []string{"id"}, fixed: map[string]any{"verb": "edit"}, hide: []string{"all", "prompt-file"},
+		description: "Change a routine of a dossier, after the user agreed: only the fields given change; rrule replaces the whole schedule."},
+	{name: "routine_remove", action: "routine", self: []string{"id"}, fixed: map[string]any{"verb": "rm"}, hide: []string{"rrule", "runner", "command", "prompt", "prompt-file", "states", "dtstart", "timeout", "all", "step"},
+		description: "Remove a routine of a dossier, when the user asks."},
+	{name: "routine_run", action: "routine", self: []string{"id"}, fixed: map[string]any{"verb": "run"}, hide: []string{"rrule", "runner", "command", "prompt", "prompt-file", "states", "dtstart", "timeout", "all", "step"},
+		description: "Run a routine of a dossier now, outside its schedule. A session routine prompts the session; when it is this session's own dossier, the prompt arrives after this turn."},
+	{name: "usage", action: "usage", description: "Sum up how office was used in this office over a period (tool calls and errors, CLI fallbacks, refusals, corrections, merges, moves), to propose improvements. Counts and office messages only, never third-party text. With of = another office (pro), facts only."},
 	{name: "escalations", action: "escalations", deskOnly: true, description: "List the escalations not resolved yet: pending (not yet shown to you) and delivered."},
 	{name: "resolve", action: "resolve", deskOnly: true, description: "Resolve an escalation once the user decided: the decision is recorded and the dossier it came from is told."},
+	{name: "tell", action: "tell", self: []string{"id"},
+		description: "Send a text (Markdown, files with attach) to the user through a source such as telegram. The user is always the recipient: nobody else can be chosen. A reply in that thread comes back to this dossier (or to the desk) as an event."},
 	{name: "escalate", action: "escalate", self: []string{"id"}, dossierOnly: true,
 		description: "Escalate to the office's desk what goes beyond this dossier: a rule to adopt, a skill to change, a request for the user. The desk gets it as a prompt once its session is idle."},
 }
@@ -104,7 +122,7 @@ func (t tool) schema(desk bool) map[string]any {
 	props := map[string]any{}
 	var required []string
 	for _, p := range a.Params {
-		if contains(t.hide, p.Name) {
+		if _, ok := t.fixed[p.Name]; ok || contains(t.hide, p.Name) {
 			continue
 		}
 		name := p.Name
@@ -160,6 +178,9 @@ func (t tool) call(self string, desk bool, in map[string]any) (any, error) {
 		if v, ok := args[p]; !ok || v == "" {
 			args[p] = self
 		}
+	}
+	for k, v := range t.fixed {
+		args[k] = v
 	}
 	var argv []string
 	for _, p := range a.Params {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -135,7 +136,7 @@ type EscalateResult struct {
 func (a *App) Escalate(from *dossier.Dossier, text string) (EscalateResult, error) {
 	d := a.Desk()
 	res := EscalateResult{From: from.ID, To: d.ID}
-	if IsDesk(from) {
+	if IsDesk(from) && from.ID == d.ID {
 		return res, spec.UserError("the desk cannot escalate to itself")
 	}
 	if err := a.ensureDesk(d); err != nil {
@@ -346,4 +347,21 @@ func ConversationOf(d *dossier.Dossier) Conversation {
 // ResolvedEscalations lists the escalations the desk has resolved, oldest first.
 func ResolvedEscalations(d *dossier.Dossier) []Escalation {
 	return escalationsIn(d, escalationResolved)
+}
+
+var prefixRe = regexp.MustCompile(`^([A-Za-z]{1,4})-.+`)
+
+// LoadAcross resolves an id like LoadAny; an id that carries another
+// office's prefix (U-DESK, U-0012) is resolved in that office, next to this one.
+// The App returned is the one that holds the dossier.
+func (a *App) LoadAcross(id string) (*App, *dossier.Dossier, error) {
+	if m := prefixRe.FindStringSubmatch(strings.TrimSpace(id)); m != nil && !strings.EqualFold(m[1], a.S.Prefix()) {
+		if o := a.S.Sibling(m[1]); o != nil {
+			b := &App{S: o}
+			d, err := b.LoadAny(id)
+			return b, d, err
+		}
+	}
+	d, err := a.LoadAny(id)
+	return a, d, err
 }

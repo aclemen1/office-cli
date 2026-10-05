@@ -39,6 +39,10 @@ type AgentSection struct {
 	Protect       []string            `toml:"protect"`
 	// Plugins turned off in every session, e.g. "playwright@claude-plugins-official".
 	DisablePlugins []string `toml:"disable_plugins"`
+	// Model of the dossiers' sessions, unless a dossier names its own; DeskModel
+	// is the desk's. Empty: the agent's own default.
+	Model     string `toml:"model"`
+	DeskModel string `toml:"desk_model"`
 }
 
 type PromptSection struct {
@@ -75,6 +79,9 @@ type SourceConfig struct {
 	Env     map[string]string `toml:"env"`
 	Config  map[string]any    `toml:"config"`
 	Timeout string            `toml:"timeout"`
+	// Signals "desk" hands every new item of the source to the desk instead of
+	// opening a dossier; replies in a dossier's thread still reach the dossier.
+	Signals string `toml:"signals"`
 }
 
 func (s SourceConfig) TimeoutDuration() time.Duration {

@@ -74,6 +74,8 @@ type Dossier struct {
 	WaitUntil   string   `json:"wait_until,omitempty"`
 	NoAction    bool     `json:"no_action,omitempty"`
 	Starred     bool     `json:"starred,omitempty"`
+	Permanent   bool     `json:"permanent,omitempty"` // a lasting dossier: never closed, quiet until something new
+	Model       string   `json:"model,omitempty"`     // the session's model, instead of the office's
 	MergedInto  string   `json:"merged_into,omitempty"`
 	Sources     []Source `json:"sources"`
 	Threads     []string `json:"threads"`
@@ -138,6 +140,8 @@ func Load(dir string) (*Dossier, error) {
 		WaitUntil   string   `yaml:"wait_until"`
 		NoAction    bool     `yaml:"no_action"`
 		Starred     bool     `yaml:"starred"`
+		Permanent   bool     `yaml:"permanent"`
+		Model       string   `yaml:"model"`
 		MergedInto  string   `yaml:"merged_into"`
 		Sources     []Source `yaml:"sources"`
 		Threads     []string `yaml:"threads"`
@@ -150,7 +154,7 @@ func Load(dir string) (*Dossier, error) {
 	}
 	d := &Dossier{
 		Dir: dir, ID: f.ID, Title: f.Title, Alias: f.Alias, Description: f.Description, Resource: f.Resource,
-		State: f.State, WaitingOn: f.WaitingOn, WaitUntil: f.WaitUntil, NoAction: f.NoAction, Starred: f.Starred, MergedInto: f.MergedInto,
+		State: f.State, WaitingOn: f.WaitingOn, WaitUntil: f.WaitUntil, NoAction: f.NoAction, Starred: f.Starred, Permanent: f.Permanent, Model: f.Model, MergedInto: f.MergedInto,
 		Sources: f.Sources, Threads: f.Threads, Links: f.Links, Created: f.Created, Updated: f.Timestamp,
 		doc: mapping, body: body,
 	}
@@ -233,6 +237,8 @@ func (d *Dossier) render() (string, error) {
 	set("wait_until", d.WaitUntil)
 	set("no_action", d.NoAction)
 	set("starred", d.Starred)
+	set("permanent", d.Permanent)
+	set("model", d.Model)
 	set("merged_into", d.MergedInto)
 	set("sources", d.Sources)
 	set("threads", d.Threads)
@@ -435,4 +441,15 @@ func (d *Dossier) SetLinksBlock(markdown string) {
 		d.body += "\n"
 	}
 	d.body += "\n" + block
+}
+
+// EditableBody is the body without the links block that office manages.
+func (d *Dossier) EditableBody() string {
+	start := strings.Index(d.body, linksBegin)
+	end := strings.Index(d.body, linksEnd)
+	if start < 0 || end < start {
+		return d.body
+	}
+	rest := strings.TrimPrefix(d.body[end+len(linksEnd):], "\n")
+	return strings.TrimRight(d.body[:start], "\n") + "\n" + rest
 }

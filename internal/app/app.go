@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,7 +22,10 @@ import (
 	"github.com/aclemen1/office-cli/internal/spec"
 )
 
-type App struct{ S *office.Office }
+type App struct {
+	S   *office.Office
+	Now bool // prompts ask the ACP server for delivery at once, not after the turn
+}
 
 func New(officeFlag string) (*App, error) {
 	s, err := office.Resolve(officeFlag)
@@ -142,6 +146,9 @@ func (a *App) FindByThread(ref string) *dossier.Dossier {
 		if d.HasThread(ref) {
 			return a.follow(d)
 		}
+	}
+	if d := a.Desk(); d.HasThread(ref) {
+		return d
 	}
 	return nil
 }
@@ -480,6 +487,9 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 		_ = d.Log("skills: %s", strings.Join(rep.Errors, "; "))
 	}
 	args := append([]string{}, cfg.Agent.Args...)
+	if m := a.ModelOf(d); m != "" && !contains(args, "--model") {
+		args = append(args, "--model", m)
+	}
 	args = append(args, "--name", d.ID, "--settings", settings)
 	addDirs := append([]string{}, cfg.Agent.AddDirs...)
 	cwd := d.Dir
@@ -579,7 +589,7 @@ func (a *App) sendPrompt(d *dossier.Dossier, text string) error {
 		return err
 	}
 	renameTab(d.Run.TabID, TabLabel(d))
-	if err := c.Prompt(d.Run.Session, text); err != nil {
+	if err := c.Prompt(d.Run.Session, text, a.delivery()); err != nil {
 		return err
 	}
 	_ = a.Archive(d)
@@ -947,11 +957,15 @@ func Activity(d *dossier.Dossier, all map[string]string) string {
 		return "stopped"
 	}
 	switch st {
-	case "", "unknown":
+	case "", "unknown", "idle", "done":
+		if pendingQuestion(d.Run.Session) {
+			return "asking"
+		}
+		if st == "done" {
+			// herdr: the turn ended and the agent waits for the user.
+			return "ready"
+		}
 		return "idle"
-	case "done":
-		// herdr: the turn ended and the agent waits for the user.
-		return "ready"
 	}
 	return st
 }
@@ -960,14 +974,32 @@ func Panes() map[string]string { return panes() }
 
 // ---------------------------------------------------------------- transcripts
 
+// transcriptPaths remembers where each session's transcript was found: the
+// glob over every project directory is slow, and the TUI asks often.
+var (
+	transcriptMu    sync.Mutex
+	transcriptPaths = map[string]string{}
+)
+
 func transcriptOf(session string) string {
 	if session == "" {
 		return ""
+	}
+	transcriptMu.Lock()
+	p, ok := transcriptPaths[session]
+	transcriptMu.Unlock()
+	if ok {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
 	}
 	matches, _ := filepath.Glob(filepath.Join(office.ExpandHome("~/.claude/projects"), "*", session+".jsonl"))
 	if len(matches) == 0 {
 		return ""
 	}
+	transcriptMu.Lock()
+	transcriptPaths[session] = matches[0]
+	transcriptMu.Unlock()
 	return matches[0]
 }
 
@@ -1045,4 +1077,61 @@ func (a *App) Start(d *dossier.Dossier) (string, error) {
 		return "", err
 	}
 	return "started", d.Save()
+}
+
+// delivery is how the ACP server should hand a prompt over: "queue" (after
+// the agent's turn, without touching the user's input) unless Now is set.
+func (a *App) delivery() string {
+	if a.Now {
+		return "now"
+	}
+	return "queue"
+}
+
+// TailClient opens a bare ACP connection to read a session's end: no
+// settings, skills or MCP servers, since it starts no agent.
+func (a *App) TailClient(d *dossier.Dossier) (*acp.Client, error) {
+	cmd := append([]string{}, a.S.Config.ACP.Command...)
+	for i := range cmd {
+		cmd[i] = office.ExpandHome(cmd[i])
+	}
+	env := map[string]string{}
+	for k, v := range a.S.Config.ACP.Env {
+		env[k] = office.ExpandHome(v)
+	}
+	cwd := d.Dir
+	if d.Run.Cwd != "" {
+		cwd = d.Run.Cwd
+	}
+	return acp.Start(acp.Options{Command: cmd, Env: env, Cwd: cwd})
+}
+
+// ModelOf is the model d's session runs on: its own, else the office's
+// default for dossiers or for the desk; "" leaves the agent's default.
+func (a *App) ModelOf(d *dossier.Dossier) string {
+	if d.Model != "" {
+		return d.Model
+	}
+	if IsDesk(d) {
+		return a.S.Config.Agent.DeskModel
+	}
+	return a.S.Config.Agent.Model
+}
+
+// SetModel gives d its own model; "" goes back to the office's default. The
+// session takes it at its next start.
+func (a *App) SetModel(d *dossier.Dossier, model string) error {
+	if IsDesk(d) {
+		return spec.UserError("the desk's model is [agent] desk_model in %s", a.S.Meta("config.toml"))
+	}
+	if d.Model == model {
+		return nil
+	}
+	old := d.Model
+	d.Model = model
+	if err := d.Save(); err != nil {
+		return err
+	}
+	_ = d.Log("model %q → %q", old, model)
+	return nil
 }

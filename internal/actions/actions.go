@@ -65,10 +65,21 @@ func moveAction(name, summary string, effects, examples []string, extra ...spec.
 				if err != nil {
 					return nil, err
 				}
+				if name == "close" && d.Permanent {
+					if !ctx.Bool("force") {
+						return nil, spec.UserError("%s is permanent: it is not closed. Pass --force to close it anyway, or `office permanent %s --clear` first", d.Label(), d.ID)
+					}
+					if err := a.SetPermanent(d, false); err != nil {
+						return nil, err
+					}
+				}
 				if name == "wait" {
 					until, correcting := ctx.Str("until"), d.State == dossier.Waiting
 					if until == "" && !correcting {
 						until = a.DefaultWait()
+						if d.Permanent {
+							until = "none"
+						}
 					}
 					if until != "" {
 						if d.WaitUntil, err = app.ParseUntil(until, time.Now()); err != nil {
@@ -262,6 +273,7 @@ func init() {
 			{Name: "alias", Kind: spec.String, Help: "Name for a lasting dossier, e.g. RDIR for a recurring meeting."},
 			{Name: "in", Kind: spec.StringList, Help: "Dossier (alias or id) that includes this one (repeatable)."},
 			{Name: "no-start", Kind: spec.Bool, Help: "Create the dossier without starting its session."},
+			{Name: "permanent", Kind: spec.Bool, Help: "A lasting dossier (a channel, a recurring meeting): not closed, waits without a chase."},
 		},
 		Effects: []string{
 			"Creates <office>/NNNN-<slug>/ with dossier.md, log.md, .state.json and prompts/0001-open.md.",
@@ -295,6 +307,11 @@ func init() {
 					Alias: ctx.Str("alias"), In: ctx.List("in")})
 				if desk := a.ActingDesk(); desk != nil && res.ID != "" {
 					_ = desk.Log("%s %s · %s", res.Outcome, res.ID, ctx.Str("title"))
+				}
+				if err == nil && ctx.Bool("permanent") && res.Outcome == "created" {
+					if d, lerr := a.Load(res.ID); lerr == nil {
+						err = a.SetPermanent(d, true)
+					}
 				}
 				return res, err
 			})
@@ -339,7 +356,7 @@ func init() {
 					extra += fmt.Sprintf(" · %d pending", x.Pending)
 				}
 				if len(x.BlockedBy) > 0 {
-					extra += " · blocked by " + strings.Join(x.BlockedBy, ", ")
+					extra += " · blocked by " + strings.Join(x.BlockedByNames, ", ")
 				}
 				fmt.Fprintf(w, "%-8s %-8s %-8s %s%s\n", x.Label, x.State, x.Activity, x.Title, extra)
 			}
@@ -382,6 +399,9 @@ func init() {
 			}
 			if s.Session != "" {
 				fmt.Fprintf(w, "session %s · tab %s\n", s.Session, s.TabID)
+			}
+			if s.RunsOn != "" {
+				fmt.Fprintf(w, "model   %s\n", s.RunsOn)
 			}
 			for _, e := range s.Escalations {
 				fmt.Fprintf(w, "%-9s %s · %s\n", e.Status, e.File, e.Text)
@@ -440,14 +460,21 @@ func init() {
 			idParam("Dossier id. Defaults to DOSSIER_ID."),
 			{Name: "text", Kind: spec.String, Help: "Prompt text."},
 			{Name: "file", Kind: spec.String, Help: "Read the prompt from a file."},
+			{Name: "now", Kind: spec.Bool, Help: "Deliver at once, even during the agent's turn or while the user types; by default the server holds it until the turn ends."},
 		},
-		Effects:  []string{"Types the prompt into the agent session; relaunches the session if its tab is gone."},
+		Effects:  []string{"Sends the prompt to the agent session (after its turn, unless --now); relaunches the session if its tab is gone."},
 		Examples: []string{`office prompt D-0042 --text "La gérance a rappelé, rédige la réponse."`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				d, err := a.LoadAny(ctx.Str("id"))
+				b, d, err := a.LoadAcross(ctx.Str("id"))
 				if err != nil {
 					return nil, err
+				}
+				if b != a {
+					if err := b.S.Lock(); err != nil {
+						return nil, err
+					}
+					defer b.S.Unlock()
 				}
 				text := ctx.Str("text")
 				if f := ctx.Str("file"); f != "" {
@@ -460,7 +487,8 @@ func init() {
 				if strings.TrimSpace(text) == "" {
 					return nil, spec.UserError("nothing to send. Example: office prompt %s --text \"…\"", d.ID)
 				}
-				return nil, a.Prompt(d, text)
+				b.Now = ctx.Bool("now")
+				return nil, b.Prompt(d, text)
 			})
 		},
 	})
@@ -489,6 +517,51 @@ func init() {
 			},
 		})
 	}
+
+	spec.Register(&spec.Action{
+		Category: "state", Name: "permanent", Summary: "Mark a lasting dossier (a channel, a recurring meeting): it is not closed, and waits without a chase by default.",
+		Params: []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID."),
+			{Name: "clear", Kind: spec.Bool, Help: "It is no longer permanent."}},
+		Effects:  []string{"Sets or removes permanent in dossier.md. close then needs --force."},
+		Examples: []string{"office permanent P-0019", "office permanent P-0019 --clear"},
+		Run: func(ctx *spec.Context) (any, error) {
+			return withApp(ctx, true, func(a *app.App) (any, error) {
+				d, err := a.Load(ctx.Str("id"))
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{"id": d.ID, "permanent": !ctx.Bool("clear")}, a.SetPermanent(d, !ctx.Bool("clear"))
+			})
+		},
+	})
+
+	spec.Register(&spec.Action{
+		Category: "state", Name: "model", Summary: "Choose the model a dossier's session runs on, instead of the office's default ([agent] model).",
+		Params: []spec.Param{idParam("Dossier id. Defaults to DOSSIER_ID."),
+			{Name: "model", Kind: spec.String, Positional: true, Help: "Model id or alias, e.g. claude-opus-5-5 or claude-sonnet-5-5. Omit to show it."},
+			{Name: "clear", Kind: spec.Bool, Help: "Back to the office's default."}},
+		Effects:  []string{"Sets model in dossier.md; the session takes it at its next start (office start <id>)."},
+		Examples: []string{"office model P-0019 claude-opus-5-5", "office model P-0019 --clear", "office model P-0019"},
+		Run: func(ctx *spec.Context) (any, error) {
+			change := ctx.Str("model") != "" || ctx.Bool("clear")
+			return withApp(ctx, change, func(a *app.App) (any, error) {
+				d, err := a.LoadAny(ctx.Str("id"))
+				if err != nil {
+					return nil, err
+				}
+				if change {
+					m := ctx.Str("model")
+					if ctx.Bool("clear") {
+						m = ""
+					}
+					if err := a.SetModel(d, m); err != nil {
+						return nil, err
+					}
+				}
+				return map[string]any{"id": d.ID, "own": d.Model, "model": a.ModelOf(d)}, nil
+			})
+		},
+	})
 
 	spec.Register(&spec.Action{
 		Category: "dossier", Name: "delete", Summary: "Delete a dossier: withdraw its signal, close its tab, drop the links to it, remove its directory.",
@@ -572,7 +645,8 @@ func init() {
 	close := moveAction("close", "Close the dossier.",
 		[]string{"Sets state to done and archives the transcript.", "Calls transition → done on every source (Gmail: task checked, purple star removed, label reviewed).", "Closes the tab when lifecycle.close_tab_on includes done."},
 		[]string{`office close D-0042 --note "Passage fixé au 12.10"`, "office close"},
-		spec.Param{Name: "note", Kind: spec.String, Help: "Outcome, kept in the history."})
+		spec.Param{Name: "note", Kind: spec.String, Help: "Outcome, kept in the history."},
+		spec.Param{Name: "force", Kind: spec.Bool, Help: "Close a permanent dossier anyway; it stops being permanent."})
 	close.Destructive = true
 	spec.Register(close)
 
@@ -902,7 +976,7 @@ func printTree(w io.Writer, n app.TreeNode, indent string) {
 		label = n.Rel + " → " + label
 	}
 	if len(n.BlockedBy) > 0 {
-		label += " · blocked by " + strings.Join(n.BlockedBy, ", ")
+		label += " · blocked by " + strings.Join(n.BlockedByNames, ", ")
 	}
 	if n.Seen {
 		label += " · (cycle)"

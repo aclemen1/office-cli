@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aclemen1/office-cli/internal/office"
 	"github.com/aclemen1/office-cli/internal/testutil"
@@ -92,5 +93,42 @@ func TestTransition(t *testing.T) {
 	r, _ = runner(t, "fail-transition", "")
 	if err := r.Transition("fake:task/1", "", "open", "done", "", Dossier{ID: "D-0001"}); err == nil || !strings.Contains(err.Error(), "gmail unavailable") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAServerTakesTheCallsAndFallsBackWhenItEnds(t *testing.T) {
+	r, log := runner(t, "ok", "")
+	s, err := Serve(r.Office, r.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ph, err := r.Progress("start", "fake:message/1", "", "")
+	if err != nil || ph != "fake:message/ph1" {
+		t.Fatalf("progress through the server: %q %v", ph, err)
+	}
+	ready, err := r.Wait("", 1)
+	if err != nil || ready {
+		t.Fatalf("wait through the server: %v %v", ready, err)
+	}
+	served := 0
+	for _, c := range testutil.Calls(log) {
+		if c["served"] == true {
+			served++
+		}
+	}
+	if served != 2 {
+		t.Fatalf("calls served: %d", served)
+	}
+	var out any
+	_ = r.run("boom", map[string]any{}, &out)
+	deadline := time.Now().Add(5 * time.Second)
+	for !s.Gone() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !s.Gone() || serverFor(r.Office, r.Source.Name) != nil {
+		t.Fatal("a server that ended is still in use")
+	}
+	if d, err := r.Describe(); err != nil || d.Name != "fake" {
+		t.Fatalf("the one-shot fallback: %+v %v", d, err)
 	}
 }

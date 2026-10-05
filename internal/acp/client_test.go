@@ -47,7 +47,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if sid != "sess-1" || pl.PaneID != "fake:p1" || pl.TabID != "fake:t1" {
 		t.Fatalf("new session %s %+v", sid, pl)
 	}
-	if err := c.Prompt(sid, "hello"); err != nil {
+	if err := c.Prompt(sid, "hello", "queue"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.LoadSession(sid); err != nil {

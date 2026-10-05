@@ -7,8 +7,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
+	"github.com/aclemen1/office-cli/internal/dossier"
 	"github.com/aclemen1/office-cli/internal/office"
 	"github.com/aclemen1/office-cli/internal/spec"
 )
@@ -106,6 +108,7 @@ func SetAgentView(roots []string) error {
 	filter := map[string]any{"op": "any", "filters": []any{
 		map[string]any{"op": "not", "filter": map[string]any{"op": "in", "field": "workspace_id", "values": ids}},
 		map[string]any{"op": "in", "field": "status", "values": []string{"blocked", "done"}},
+		map[string]any{"op": "eq", "field": map[string]any{"token": todoToken}, "value": "1"},
 		map[string]any{"op": "eq", "field": "workspace_id", "value": map[string]any{"context": "current_workspace_id"}},
 	}}
 	return herdrRequest("agent.view.set", map[string]any{"source": viewSource, "label": "without dossiers", "filter": filter})
@@ -128,3 +131,68 @@ func HerdrReady() error {
 	}
 	return conn.Close()
 }
+
+// todoToken marks the pane of a dossier that needs the user: open and not
+// parked, or its agent asks a question. The agents' view keeps those panes.
+// herdr forgets a token after a day at most: ingest and the TUI report again.
+const todoToken = "office_todo"
+
+const todoTTL = 24 * time.Hour
+
+var (
+	todoMu   sync.Mutex
+	todoSent = map[string]todoReport{}
+)
+
+type todoReport struct {
+	on bool
+	at time.Time
+}
+
+func needsUser(d *dossier.Dossier) bool {
+	if d.State == dossier.Open && !d.NoAction {
+		return true
+	}
+	return d.Run.Session != "" && pendingQuestion(d.Run.Session)
+}
+
+// reportTodo publishes the dossier's todo token on its pane, unless the same
+// value went out recently.
+func reportTodo(d *dossier.Dossier) {
+	pane := d.Run.PaneID
+	if pane == "" || IsDesk(d) {
+		return
+	}
+	on := needsUser(d)
+	todoMu.Lock()
+	last, ok := todoSent[pane]
+	todoMu.Unlock()
+	if ok && last.on == on && time.Since(last.at) < todoTTL/2 {
+		return
+	}
+	var v any
+	if on {
+		v = "1"
+	}
+	params := map[string]any{"pane_id": pane, "source": viewSource, "tokens": map[string]any{todoToken: v}}
+	if on {
+		params["ttl_ms"] = todoTTL.Milliseconds()
+	}
+	if herdrRequest("pane.report_metadata", params) != nil {
+		return
+	}
+	todoMu.Lock()
+	todoSent[pane] = todoReport{on, time.Now()}
+	todoMu.Unlock()
+}
+
+// ReportTodos publishes the todo token of every dossier with a pane.
+func (a *App) ReportTodos() {
+	all, _ := a.All()
+	for _, d := range all {
+		reportTodo(d)
+	}
+}
+
+// ReportTodo publishes one dossier's todo token; the TUI calls it on reload.
+func ReportTodo(d *dossier.Dossier) { reportTodo(d) }

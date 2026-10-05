@@ -58,6 +58,9 @@ func (a *App) Delete(d *dossier.Dossier, note string) (DeleteResult, error) {
 		_ = x.Log("links to %s removed: %s (%s) was deleted", d.ID, d.ID, d.Title)
 		res.Unlinked = append(res.Unlinked, x.ID)
 	}
+	for _, w := range a.dropRoutines(d) {
+		_ = d.Log("%s", w)
+	}
 	if runtime.GOOS == "darwin" {
 		trash := filepath.Join(office.ExpandHome("~/.Trash"), fmt.Sprintf("%s %s %s", d.ID, filepath.Base(d.Dir), time.Now().Format("2006-01-02 15.04.05")))
 		if err := os.MkdirAll(filepath.Dir(trash), 0o700); err != nil {

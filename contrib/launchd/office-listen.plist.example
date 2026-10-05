@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- office listen: ingest a source the moment it has news (sources whose
+     connector declares wait, e.g. a Telegram bot). Replace HOME and the
+     PATH entries, copy to ~/Library/LaunchAgents/, then
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/office-listen.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>office-listen</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/go/bin/office</string>
+    <string>listen</string>
+    <string>/Users/YOU/offices</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/YOU/go/bin:/opt/homebrew/bin:/Users/YOU/.local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/office-listen.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/office-listen.log</string>
+</dict>
+</plist>

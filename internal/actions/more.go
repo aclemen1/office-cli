@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aclemen1/office-cli/internal/app"
+	"github.com/aclemen1/office-cli/internal/dossier"
 	"github.com/aclemen1/office-cli/internal/office"
 	"github.com/aclemen1/office-cli/internal/spec"
 )
@@ -70,7 +71,7 @@ func init() {
 			"<to> may be desk: the event becomes an escalation, as with `office escalate`.",
 		Params: []spec.Param{
 			{Name: "from", Kind: spec.String, Positional: true, Required: true, Help: "Dossier the event comes from."},
-			{Name: "to", Kind: spec.String, Positional: true, Required: true, Help: "Dossier that must know, or desk."},
+			{Name: "to", Kind: spec.String, Positional: true, Required: true, Help: "Dossier that must know, or desk; an id of another office (U-DESK, U-0012) reaches it there."},
 			{Name: "text", Kind: spec.String, Required: true, Help: "What <to> must know."},
 		},
 		Effects:  []string{"Logs the event in <to> and prompts its session; a dossier without session only gets the log line."},
@@ -81,17 +82,24 @@ func init() {
 				if err != nil {
 					return nil, err
 				}
-				to, err := a.LoadAny(ctx.Str("to"))
+				b, to, err := a.LoadAcross(ctx.Str("to"))
 				if err != nil {
 					return nil, err
 				}
 				if from.ID == to.ID {
 					return nil, spec.UserError("%s cannot notify itself", from.ID)
 				}
-				if app.IsDesk(to) {
-					return a.Escalate(from, ctx.Str("text"))
+				if b != a {
+					// Another office: hold its lock while writing there.
+					if err := b.S.Lock(); err != nil {
+						return nil, err
+					}
+					defer b.S.Unlock()
 				}
-				prompted, err := a.Tell(from, to, ctx.Str("text"))
+				if app.IsDesk(to) {
+					return b.Escalate(from, ctx.Str("text"))
+				}
+				prompted, err := b.Tell(from, to, ctx.Str("text"))
 				return map[string]any{"to": to.ID, "prompted": prompted}, err
 			})
 		},
@@ -397,7 +405,7 @@ func init() {
 				if err := a.SetAlias(d, name); err != nil {
 					return nil, err
 				}
-				return map[string]any{"id": d.ID, "alias": d.Alias, "label": d.Label()}, nil
+				return map[string]any{"id": d.ID, "alias": d.Alias, "label": d.Label(), "permanent": d.Permanent, "hint": permanentHint(d)}, nil
 			})
 		},
 	})
@@ -474,4 +482,12 @@ func officeNamed(current *office.Office, name string) (*office.Office, error) {
 		known = append(known, s.Config.Office.Sphere)
 	}
 	return nil, spec.UserError("no office %q beside %s; known: %s", name, current.Root, strings.Join(known, ", "))
+}
+
+// permanentHint proposes to make a named dossier permanent.
+func permanentHint(d *dossier.Dossier) string {
+	if d.Alias == "" || d.Permanent {
+		return ""
+	}
+	return fmt.Sprintf("an alias often names a lasting dossier: `office permanent %s` keeps it from being closed", d.ID)
 }

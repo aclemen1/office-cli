@@ -117,6 +117,7 @@ func (a *App) Move(ids []string, target *office.Office) (MoveResult, error) {
 			return res, err
 		}
 		_ = m.Log("moved from %s (%s) as %s", oldID, a.S.Root, m.ID)
+		res.Warnings = append(res.Warnings, a.moveRoutines(oldID, to, m)...)
 		if err := a.S.AddRedirect(oldID, m.ID, target.Root); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s: no redirect left in %s (%v)", oldID, a.S.Root, err))
 		}

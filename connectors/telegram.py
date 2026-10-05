@@ -12,7 +12,11 @@ The bot answers which dossier a message reached, and tells when it waits, is
 resumed, closed or reopened. Bot commands (/start) are ignored, and the first
 poll only marks what the bot already received as read.
 
-Protocol 1: `telegram.py describe|poll|transition|opened`, JSON on stdin and stdout.
+Protocol 1: `telegram.py describe|poll|transition|opened|send|wait|progress|serve`, JSON on
+stdin and stdout; `serve` answers the other verbs, one JSON line each, for office listen.
+`send` writes a text (Markdown, split under 4096 characters) and files to the
+allowed_users only; a reply in its thread comes back as an event. `wait` long-polls
+the bot without consuming, for `office listen`.
 config:
   token_service  keychain item holding the bot token (security add-generic-password -s <it> -w)
   allowed_users  Telegram user ids allowed to write to the bot; a poll without them lists who wrote
@@ -41,8 +45,13 @@ def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_TOKENS = {}
+
+
 def token(cfg):
     service = cfg.get("token_service")
+    if service in _TOKENS:
+        return _TOKENS[service]
     if not service:
         raise Fail("config.token_service is missing: the keychain item that holds the bot token")
     p = subprocess.run(["security", "find-generic-password", "-a", os.environ.get("USER", ""), "-s", service, "-w"],
@@ -50,7 +59,8 @@ def token(cfg):
     if p.returncode != 0 or not p.stdout.strip():
         raise Fail(f"no bot token in the keychain item {service!r}; add it with "
                    f"`security add-generic-password -a \"$USER\" -s {service} -w`")
-    return p.stdout.strip()
+    _TOKENS[service] = p.stdout.strip()
+    return _TOKENS[service]
 
 
 def call(tok, method, **params):
@@ -75,11 +85,35 @@ def download(tok, file_id, dest):
     return dest
 
 
+AUDIO_EXT = {"audio/mp4": ".m4a", "audio/x-m4a": ".m4a", "audio/m4a": ".m4a", "audio/aac": ".aac",
+             "audio/mpeg": ".mp3", "audio/ogg": ".ogg", "audio/opus": ".ogg", "audio/wav": ".wav",
+             "audio/x-wav": ".wav", "audio/flac": ".flac", "audio/webm": ".webm"}
+
+
+def audio_ext(item, default):
+    name = item.get("file_name") or ""
+    if "." in name:
+        return "." + name.rsplit(".", 1)[1].lower()
+    return AUDIO_EXT.get(item.get("mime_type") or "", default)
+
+
+def as_wav(audio):
+    """A 16 kHz mono WAV of any audio ffmpeg reads; the transcriber's reader
+    (libsndfile) knows neither M4A nor AAC. Without ffmpeg, the file as is."""
+    wav = audio + ".wav"
+    try:
+        p = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", audio, "-ac", "1", "-ar", "16000", wav],
+                           capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return audio
+    return wav if p.returncode == 0 and os.path.exists(wav) else audio
+
+
 def transcribe(cfg, audio):
     base = audio + ".transcript"
     cmd = [cfg.get("stt_command") or "mlx_audio.stt.generate",
            "--model", cfg.get("stt_model") or "mlx-community/whisper-large-v3-turbo",
-           "--audio", audio, "--output", base, "--format", "txt"]
+           "--audio", as_wav(audio), "--output", base, "--format", "txt"]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -129,7 +163,7 @@ def content(tok, cfg, msg, tmpdir):
     for key in ("voice", "audio", "video_note"):
         if key in msg:
             kind = "voice"
-            ext = ".ogg" if key == "voice" else ".mp4" if key == "video_note" else ".audio"
+            ext = ".ogg" if key == "voice" else ".mp4" if key == "video_note" else audio_ext(msg[key], ".m4a")
             audio = download(tok, msg[key]["file_id"], os.path.join(tmpdir, f"{mid}-{key}{ext}"))
             spoken = transcribe(cfg, audio)
             text = (text + "\n\n" + spoken).strip() if text else spoken
@@ -179,7 +213,8 @@ def poll(inp):
         if root:
             roots[f"{chat}/{mid}"] = root
             _, thread = refs(chat, root)
-            events.append({"thread_ref": thread, "kind": kind, "summary": {"kind": kind, "text": text[:200]},
+            events.append({"thread_ref": thread, "kind": kind,
+                           "summary": {"kind": kind, "text": text[:200], "message_ref": refs(chat, mid)[0]},
                            "files": [{"name": "message.md", "content": md}, *files], "at": now()})
             continue
         roots[f"{chat}/{mid}"] = mid
@@ -245,20 +280,271 @@ def transition(inp):
     return {"ok": True, "detail": "told the chat"}
 
 
-def main():
-    verb = sys.argv[1] if len(sys.argv) > 1 else ""
+LIMIT = 4000  # under Telegram's 4096, room for Markdown escapes
+
+
+def chunks(text):
+    """Split text under LIMIT: by paragraph, then by line, then hard."""
+    out, cur = [], ""
+    for para in text.split("\n\n"):
+        pieces = [para]
+        if len(para) > LIMIT:
+            pieces, line_buf = [], ""
+            for line in para.split("\n"):
+                while len(line) > LIMIT:
+                    pieces.append(line[:LIMIT])
+                    line = line[LIMIT:]
+                if line_buf and len(line_buf) + 1 + len(line) > LIMIT:
+                    pieces.append(line_buf)
+                    line_buf = line
+                else:
+                    line_buf = f"{line_buf}\n{line}" if line_buf else line
+            if line_buf:
+                pieces.append(line_buf)
+        for p in pieces:
+            if cur and len(cur) + 2 + len(p) > LIMIT:
+                out.append(cur)
+                cur = p
+            else:
+                cur = f"{cur}\n\n{p}" if cur else p
+    if cur:
+        out.append(cur)
+    return out
+
+
+def send_text(tok, chat, text, reply_to=None):
     try:
-        inp = json.load(sys.stdin) if verb in ("poll", "transition", "opened") else {}
+        return call(tok, "sendMessage", chat_id=chat, text=text, parse_mode="Markdown",
+                    reply_to_message_id=reply_to, allow_sending_without_reply=True)
+    except Fail as e:
+        if "parse" not in str(e).lower() and "entit" not in str(e).lower():
+            raise
+        return call(tok, "sendMessage", chat_id=chat, text=text,
+                    reply_to_message_id=reply_to, allow_sending_without_reply=True)
+
+
+def send_file(tok, chat, path, name, reply_to=None):
+    boundary = "office" + os.urandom(8).hex()
+    with open(path, "rb") as f:
+        data = f.read()
+    fields = {"chat_id": str(chat)}
+    if reply_to:
+        fields["reply_to_message_id"] = str(reply_to)
+        fields["allow_sending_without_reply"] = "true"
+    body = b""
+    for k, v in fields.items():
+        body += f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode()
+    body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"{name}\"\r\n"
+             f"Content-Type: application/octet-stream\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(f"{API}/bot{tok}/sendDocument", data=body,
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            out = json.load(r)
+    except urllib.error.HTTPError as e:
+        out = json.load(e)
+    except OSError as e:
+        raise Fail(f"Telegram sendDocument: {e}")
+    if not out.get("ok"):
+        raise Fail(f"Telegram sendDocument: {out.get('description', out)}")
+    return out["result"]
+
+
+def send(inp):
+    """Send a text (Markdown) and files to the user: always the allowed_users,
+    never anyone else. Every message sent belongs to one thread, so that a
+    reply comes back as an event of the sender."""
+    cfg = inp.get("config") or {}
+    users = [int(u) for u in cfg.get("allowed_users") or []]
+    if not users:
+        raise Fail("config.allowed_users is empty: nobody to send to")
+    text = (inp.get("text") or "").strip()
+    files = inp.get("files") or []
+    if not text and not files:
+        raise Fail("nothing to send")
+    tok = token(cfg)
+    st = load_state(cfg)
+    roots = st.setdefault("roots", {})
+    # A placeholder of `progress` (one per chat) becomes the first part of the answer.
+    replace = {}
+    for r in inp.get("replace") or []:
+        c, p = r.split("/", 1)[1].split("/")
+        replace[int(c)] = int(p)
+    threads, sent = [], 0
+    for chat in users:
+        root, parts = None, chunks(text)
+        if chat in replace and parts:
+            pid = replace[chat]
+            try:
+                edit_text(tok, chat, pid, parts[0])
+                root = roots.get(f"{chat}/{pid}") or pid
+                parts = parts[1:]
+                sent += 1
+            except Fail:
+                pass
+        for part in parts:
+            m = send_text(tok, chat, part, reply_to=root)
+            root = root or m["message_id"]
+            roots[f"{chat}/{m['message_id']}"] = root
+            sent += 1
+        for f in files:
+            m = send_file(tok, chat, os.path.expanduser(f["path"]), f.get("name") or os.path.basename(f["path"]), reply_to=root)
+            root = root or m["message_id"]
+            roots[f"{chat}/{m['message_id']}"] = root
+            sent += 1
+        threads.append(refs(chat, root)[1])
+    save_state(cfg, st)
+    return {"ok": True, "thread_refs": threads, "sent": sent}
+
+
+def edit_text(tok, chat, mid, text):
+    """Replace a message's text, Markdown first, plain if Telegram refuses it.
+    An unchanged text is no error."""
+    for mode in ("Markdown", None):
+        try:
+            return call(tok, "editMessageText", chat_id=chat, message_id=mid, text=text, parse_mode=mode)
+        except Fail as e:
+            msg = str(e).lower()
+            if "not modified" in msg:
+                return None
+            if mode and ("parse" in msg or "entit" in msg):
+                continue
+            raise
+
+
+def progress(inp):
+    """A placeholder that tells the user their message is being handled:
+    start answers it with ⏳, update shows the agent's steps, end closes it
+    (✓ by default). send with replace turns it into the answer."""
+    cfg = inp.get("config") or {}
+    tok = token(cfg)
+    op = inp.get("op")
+    if op == "start":
+        ref = inp.get("ref") or ""
+        if not ref.startswith("telegram:message/"):
+            raise Fail(f"not a Telegram message: {ref}")
+        chat, mid = ref.split("/", 1)[1].split("/")
+        sent = call(tok, "sendMessage", chat_id=chat, text="⏳ …", reply_to_message_id=mid,
+                    allow_sending_without_reply=True, disable_notification=True)
+        st = load_state(cfg)
+        roots = st.setdefault("roots", {})
+        roots[f"{chat}/{sent['message_id']}"] = roots.get(f"{chat}/{mid}") or int(mid)
+        save_state(cfg, st)
+        return {"ok": True, "placeholder": refs(chat, sent["message_id"])[0]}
+    ph = inp.get("placeholder") or ""
+    if not ph.startswith("telegram:message/"):
+        raise Fail(f"not a placeholder: {ph}")
+    chat, pid = ph.split("/", 1)[1].split("/")
+    if op == "update":
+        text = (inp.get("text") or "").strip()
+        edit_text(tok, chat, pid, ("⏳ " + text)[:LIMIT] if text else "⏳ …")
+    elif op == "end":
+        edit_text(tok, chat, pid, (inp.get("text") or "✓").strip()[:LIMIT])
+    else:
+        raise Fail(f"progress: op {op!r}; expected start, update or end")
+    return {"ok": True, "placeholder": ph}
+
+
+def wait(inp):
+    """Long polling: block until the bot holds an update after the cursor, or
+    until the timeout. getUpdates with the cursor's offset confirms only what
+    poll already took, so nothing is consumed here."""
+    cfg = inp.get("config") or {}
+    tok = token(cfg)
+    cur = json.loads(inp.get("cursor") or "{}") if (inp.get("cursor") or "").startswith("{") else {}
+    offset = cur.get("offset")
+    if offset is None:
+        return {"ready": True}
+    timeout = max(1, min(int(inp.get("timeout") or 50), 50))
+    try:
+        with urllib.request.urlopen(f"{API}/bot{tok}/getUpdates?" + urllib.parse.urlencode(
+                {"offset": offset, "timeout": timeout, "limit": 1, "allowed_updates": json.dumps(["message"])}),
+                timeout=timeout + 15) as r:
+            out = json.load(r)
+    except urllib.error.HTTPError as e:
+        out = json.load(e)
+    except OSError as e:
+        raise Fail(f"Telegram getUpdates: {e}")
+    if not out.get("ok"):
+        raise Fail(f"Telegram getUpdates: {out.get('description', out)}")
+    return {"ready": bool(out["result"])}
+
+
+VERBS = {}  # filled below: verb → handler
+
+
+def describe(_inp):
+    return {"name": "telegram", "protocol": 1,
+            "verbs": ["describe", "poll", "transition", "opened", "send", "wait", "progress", "serve"]}
+
+
+def serve(_inp):
+    """A lasting process for office listen: one JSON request per line on stdin,
+    {"id", "verb", "input"}, one answer per line on stdout, {"id", "result"} or
+    {"id", "error"}. Requests run side by side; only wait runs without the state
+    lock, since it blocks for up to a minute."""
+    import threading
+    out_lock, state_lock = threading.Lock(), threading.Lock()
+
+    def answer(msg):
+        with out_lock:
+            sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+
+    def handle(req):
+        rid, verb = req.get("id"), req.get("verb")
+        fn = VERBS.get(verb)
+        try:
+            if fn is None or verb == "serve":
+                raise Fail(f"unknown verb {verb!r}")
+            if verb == "wait":
+                result = fn(req.get("input") or {})
+            else:
+                with state_lock:
+                    result = fn(req.get("input") or {})
+            answer({"id": rid, "result": result})
+        except Fail as e:
+            answer({"id": rid, "error": {"message": str(e)}})
+        except Exception as e:  # a bug must not stop the server
+            answer({"id": rid, "error": {"message": f"{type(e).__name__}: {e}"}})
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except ValueError:
+            continue
+        threading.Thread(target=handle, args=(req,), daemon=True).start()
+    return {"ok": True}
+
+
+def main():
+    VERBS.update({"describe": describe, "poll": poll, "transition": transition, "opened": opened, "send": send,
+                  "wait": wait, "progress": progress})
+    verb = sys.argv[1] if len(sys.argv) > 1 else ""
+    if verb == "serve":
+        serve({})
+        return
+    try:
+        inp = json.load(sys.stdin) if verb in ("poll", "transition", "opened", "send", "wait", "progress") else {}
         if verb == "describe":
-            out = {"name": "telegram", "protocol": 1, "verbs": ["describe", "poll", "transition", "opened"]}
+            out = {"name": "telegram", "protocol": 1, "verbs": ["describe", "poll", "transition", "opened", "send", "wait", "progress", "serve"]}
+        elif verb == "wait":
+            out = wait(inp)
+        elif verb == "progress":
+            out = progress(inp)
         elif verb == "poll":
             out = poll(inp)
         elif verb == "transition":
             out = transition(inp)
         elif verb == "opened":
             out = opened(inp)
+        elif verb == "send":
+            out = send(inp)
         else:
-            raise Fail(f"unknown verb {verb!r}; expected describe, poll, transition or opened")
+            raise Fail(f"unknown verb {verb!r}; expected describe, poll, transition, opened, send, wait, progress or serve")
     except Fail as e:
         json.dump({"error": {"message": str(e)}}, sys.stdout)
         sys.exit(1)

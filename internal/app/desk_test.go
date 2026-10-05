@@ -3,10 +3,13 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aclemen1/office-cli/internal/connector"
+	"github.com/aclemen1/office-cli/internal/office"
+	"github.com/aclemen1/office-cli/internal/testutil"
 )
 
 func TestTheDeskIsNoDossier(t *testing.T) {
@@ -228,5 +231,155 @@ func TestStartGivesAStoppedDossierItsSession(t *testing.T) {
 	how, err := f.a.Start(d)
 	if err != nil || how != "started" || d.Run.Session == "" || len(f.calls("session/prompt")) != 1 {
 		t.Fatalf("start %q %v %+v", how, err, d.Run)
+	}
+}
+
+func TestTellUserThreadBringsTheReplyBackToTheDesk(t *testing.T) {
+	f := newFixture(t)
+	deskWith(t, f, "idle")
+	res, err := f.a.TellUser(f.a.Desk(), "", "Briefing du jour", nil)
+	if err != nil || res.Source != "fake" || len(res.Threads) != 1 {
+		t.Fatalf("tell %+v %v", res, err)
+	}
+	if d := f.a.FindByThread("fake:thread/told/thread-reply"); d == nil || !IsDesk(d) {
+		t.Fatalf("the desk does not hold the thread: %v", d)
+	}
+	if _, err := f.a.Ingest(nil, connector.PollOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if log, _ := os.ReadFile(f.a.Desk().Path("log.md")); !strings.Contains(string(log), "event: ") {
+		t.Fatalf("the reply did not reach the desk:\n%s", log)
+	}
+	found := false
+	for _, p := range f.calls("session/prompt") {
+		found = found || strings.Contains(fmt.Sprint(p), "reply.md")
+	}
+	if !found {
+		t.Fatal("the desk was not prompted with the reply")
+	}
+	if _, err := f.a.TellUser(f.a.Desk(), "", " ", nil); err == nil {
+		t.Fatal("an empty message was sent")
+	}
+	if _, err := f.a.TellUser(f.a.Desk(), "nope", "x", nil); err == nil {
+		t.Fatal("an unknown source was accepted")
+	}
+}
+
+func TestNotifyReachesAnotherOfficeByItsPrefix(t *testing.T) {
+	f := newFixture(t)
+	root := filepath.Join(filepath.Dir(f.a.S.Root), "pro")
+	if _, err := office.Init(root, "pro", false); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(root, ".office", "config.toml")
+	b, _ := os.ReadFile(cfg)
+	os.WriteFile(cfg, []byte(strings.Replace(string(b), "[office]", "[office]\nid_prefix = \"U\"", 1)), 0o644)
+	f.a.Open(OpenParams{Title: "Briefing", NoStart: true})
+	from := mustGet(t, f, "1")
+
+	b2, desk, err := f.a.LoadAcross("U-DESK")
+	if err != nil || b2 == f.a || !IsDesk(desk) || desk.ID != "U-DESK" {
+		t.Fatalf("across %v %+v %v", b2 == f.a, desk, err)
+	}
+	if res, err := b2.Escalate(from, "Briefing pro, s'il te plaît"); err != nil || res.To != "U-DESK" {
+		t.Fatalf("escalate across %+v %v", res, err)
+	}
+	if e := Escalations(b2.Desk()); len(e) != 1 || e[0].From != "D-0001" {
+		t.Fatalf("pro desk escalations %+v", e)
+	}
+	if e := Escalations(f.a.Desk()); len(e) != 0 {
+		t.Fatal("the escalation landed in the wrong office")
+	}
+	if same, d, err := f.a.LoadAcross("D-0001"); err != nil || same != f.a || d.ID != "D-0001" {
+		t.Fatalf("own id %v %v", d, err)
+	}
+	if _, _, err := f.a.LoadAcross("X-0001"); err == nil {
+		t.Fatal("an unknown prefix resolved")
+	}
+}
+
+func TestASourceCanHandItsItemsToTheDesk(t *testing.T) {
+	f := newFixture(t)
+	deskWith(t, f, "idle")
+	f.a.S.Config.Sources[0].Signals = "desk"
+	reps, err := f.a.Ingest(nil, connector.PollOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := f.a.All(); len(all) != 0 {
+		t.Fatalf("a dossier was opened: %d", len(all))
+	}
+	got := false
+	for _, r := range reps {
+		for _, o := range r.Opened {
+			got = got || (o.ID == f.a.DeskID() && o.Outcome == "desk")
+		}
+	}
+	if !got {
+		t.Fatalf("the desk did not get the item: %+v", reps)
+	}
+	if d := f.a.FindByThread("fake:thread/thread-reply"); d == nil || !IsDesk(d) {
+		t.Fatal("the item's thread should belong to the desk")
+	}
+}
+
+func TestPromptsAskToBeQueuedUnlessNow(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Briefing", NoStart: true})
+	d := mustGet(t, f, "1")
+	if err := f.a.Prompt(d, "après le tour"); err != nil {
+		t.Fatal(err)
+	}
+	f.a.Now = true
+	if err := f.a.Prompt(d, "tout de suite"); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range f.calls("session/prompt") {
+		meta, _ := p["params"].(map[string]any)["_meta"].(map[string]any)
+		got = append(got, fmt.Sprint(meta["delivery"]))
+	}
+	if strings.Join(got, ",") != "queue,now" {
+		t.Fatalf("deliveries %v", got)
+	}
+}
+
+func TestTheDeskTakesAnItemOnce(t *testing.T) {
+	f := newFixture(t)
+	deskWith(t, f, "idle")
+	s := connector.Signal{SourceRef: "telegram:message/1/18", ThreadRef: "telegram:chat/1/18", Title: "Vocal"}
+	if r, err := f.a.toDesk(s); err != nil || r.Outcome != "desk" {
+		t.Fatalf("first %+v %v", r, err)
+	}
+	if r, err := f.a.toDesk(s); err != nil || r.Outcome != "existing" {
+		t.Fatalf("the same item reached the desk twice: %+v %v", r, err)
+	}
+}
+
+func TestAPlaceholderAnswersAnItemUntilTellReplacesIt(t *testing.T) {
+	f := newFixture(t)
+	deskWith(t, f, "idle")
+	f.a.S.Config.Sources[0].Signals = "desk"
+	if _, err := f.a.Ingest(nil, connector.PollOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(f.a.S.Meta("run", "progress.json"))
+	if !strings.Contains(string(b), "fake:message/ph1") || !strings.Contains(string(b), f.a.DeskID()) {
+		t.Fatalf("no placeholder for the item:\n%s", b)
+	}
+	if _, err := f.a.TellUser(f.a.Desk(), "", "Réponse", nil); err != nil {
+		t.Fatal(err)
+	}
+	var sent map[string]any
+	for _, c := range testutil.Calls(f.srcLog) {
+		if c["verb"] == "send" {
+			sent = c["input"].(map[string]any)
+		}
+	}
+	if fmt.Sprint(sent["replace"]) != "[fake:message/ph1]" {
+		t.Fatalf("tell did not replace the placeholder: %v", sent["replace"])
+	}
+	if b, _ := os.ReadFile(f.a.S.Meta("run", "progress.json")); strings.Contains(string(b), "ph1") {
+		t.Fatal("the placeholder stayed open after tell")
 	}
 }
