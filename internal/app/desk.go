@@ -211,7 +211,9 @@ type ResolveResult struct {
 // Resolve records the desk's decision on an open escalation, named by its
 // file or by the dossier it came from, tells that dossier, and files the
 // escalation under escalations/resolved/.
-func (a *App) Resolve(ref, decision string) (ResolveResult, error) {
+// With all, every open escalation that matches ref is resolved by the same
+// decision (several from one dossier); otherwise ref must match one.
+func (a *App) Resolve(ref, decision string, all bool) (ResolveResult, error) {
 	d := a.Desk()
 	var res ResolveResult
 	if strings.TrimSpace(decision) == "" {
@@ -230,14 +232,19 @@ func (a *App) Resolve(ref, decision string) (ResolveResult, error) {
 	switch {
 	case len(hits) == 0:
 		return res, spec.UserError("no open escalation matches %q. List them with `office escalations`", ref)
-	case len(hits) > 1:
-		files := make([]string, len(hits))
+	case len(hits) > 1 && !all:
+		lines := make([]string, len(hits))
 		for i, e := range hits {
-			files[i] = e.File
+			lines[i] = e.File + " (" + truncateText(e.Text, 90) + ")"
 		}
-		return res, spec.UserError("%d open escalations match %q; name one by its file: %s", len(hits), ref, strings.Join(files, ", "))
+		return res, spec.UserError("%d open escalations match %q: name one by its file, or pass all to resolve them together: %s", len(hits), ref, strings.Join(lines, "; "))
 	}
-	e := hits[0]
+	for i, e := range hits[:len(hits)-1] {
+		if _, err := a.Resolve(e.File, decision, false); err != nil {
+			return res, fmt.Errorf("escalation %d of %d: %w", i+1, len(hits), err)
+		}
+	}
+	e := hits[len(hits)-1]
 	res.File, res.From = e.File, e.From
 	if err := os.MkdirAll(d.Path(escalationsDir, escalationResolved), 0o755); err != nil {
 		return res, err
@@ -364,4 +371,12 @@ func (a *App) LoadAcross(id string) (*App, *dossier.Dossier, error) {
 	}
 	d, err := a.LoadAny(id)
 	return a, d, err
+}
+
+func truncateText(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
 }

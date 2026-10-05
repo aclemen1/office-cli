@@ -21,6 +21,7 @@ func init() {
 			{Name: "note", Kind: spec.String, Help: "file: context for the filing, e.g. what the document is for."},
 			{Name: "dossier", Kind: spec.String, Help: "attach: the dossier it belongs to."},
 			{Name: "dry-run", Kind: spec.Bool, Help: "release: check only."},
+			{Name: "no-dossier", Kind: spec.String, Help: "release: the entry belongs to no dossier, and why (the user's choice); it must still be filed and pass the check."},
 		},
 		Effects: []string{"ls and show read only.", "file runs [inbox] file; attach records the dossier; release checks then moves the entry to the Trash.",
 			"Each step writes a line in the desk's history."},
@@ -41,7 +42,7 @@ func init() {
 					}
 					return a.InboxAttach(name, d)
 				case "release":
-					detail, err := a.InboxRelease(name, ctx.Bool("dry-run"))
+					detail, err := a.InboxRelease(name, ctx.Bool("dry-run"), ctx.Str("no-dossier"))
 					return map[string]any{"name": name, "detail": detail}, err
 				}
 				items, err := a.Inbox()

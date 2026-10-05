@@ -65,6 +65,13 @@ func moveAction(name, summary string, effects, examples []string, extra ...spec.
 				if err != nil {
 					return nil, err
 				}
+				if name == "resume" && d.State == dossier.Open {
+					// Nothing to resume: the dossier is open already; a prompt still goes.
+					if p := ctx.Str("prompt"); p != "" {
+						return stateResult{d.ID, d.State, 0}, a.Prompt(d, p)
+					}
+					return stateResult{d.ID, d.State, 0}, nil
+				}
 				if name == "close" && d.Permanent {
 					if !ctx.Bool("force") {
 						return nil, spec.UserError("%s is permanent: it is not closed. Pass --force to close it anyway, or `office permanent %s --clear` first", d.Label(), d.ID)
@@ -331,10 +338,11 @@ func init() {
 		Params: []spec.Param{
 			{Name: "status", Kind: spec.String, Default: "active", Enum: []string{"active", "todo", "open", "waiting", "done", "merged", "all"}, Help: "active = open and waiting; todo = open and needing action (not parked)."},
 			{Name: "in", Kind: spec.String, Help: "Only the dossiers this one includes."},
+			{Name: "model", Kind: spec.String, Help: "Only the dossiers whose session runs on this model, or a part of its id (sonnet, opus)."},
 		},
 		Examples: []string{"office ls", "office ls --status todo", "office ls --status waiting", "office ls --status all --format text"},
 		Run: func(ctx *spec.Context) (any, error) {
-			return withApp(ctx, false, func(a *app.App) (any, error) { return a.List(ctx.Str("status"), ctx.Str("in")) })
+			return withApp(ctx, false, func(a *app.App) (any, error) { return a.List(ctx.Str("status"), ctx.Str("in"), ctx.Str("model")) })
 		},
 		Text: func(w io.Writer, r any) {
 			rows := r.([]app.Row)
@@ -357,6 +365,9 @@ func init() {
 				}
 				if len(x.BlockedBy) > 0 {
 					extra += " · blocked by " + strings.Join(x.BlockedByNames, ", ")
+				}
+				if x.Model != "" {
+					extra += " · " + x.Model
 				}
 				fmt.Fprintf(w, "%-8s %-8s %-8s %s%s\n", x.Label, x.State, x.Activity, x.Title, extra)
 			}
@@ -541,24 +552,32 @@ func init() {
 			{Name: "model", Kind: spec.String, Positional: true, Help: "Model id or alias, e.g. claude-opus-5-5 or claude-sonnet-5-5. Omit to show it."},
 			{Name: "clear", Kind: spec.Bool, Help: "Back to the office's default."}},
 		Effects:  []string{"Sets model in dossier.md; the session takes it at its next start (office start <id>)."},
-		Examples: []string{"office model P-0019 claude-opus-5-5", "office model P-0019 --clear", "office model P-0019"},
+		Examples: []string{"office model P-0019 claude-opus-5-5", "office model P-0001,P-0005 --clear", "office model P-0019"},
 		Run: func(ctx *spec.Context) (any, error) {
 			change := ctx.Str("model") != "" || ctx.Bool("clear")
 			return withApp(ctx, change, func(a *app.App) (any, error) {
-				d, err := a.LoadAny(ctx.Str("id"))
-				if err != nil {
-					return nil, err
-				}
-				if change {
-					m := ctx.Str("model")
-					if ctx.Bool("clear") {
-						m = ""
-					}
-					if err := a.SetModel(d, m); err != nil {
+				// Several dossiers at once: P-0001,P-0002.
+				var out []map[string]any
+				for _, id := range strings.Split(ctx.Str("id"), ",") {
+					d, err := a.LoadAny(strings.TrimSpace(id))
+					if err != nil {
 						return nil, err
 					}
+					if change {
+						m := ctx.Str("model")
+						if ctx.Bool("clear") {
+							m = ""
+						}
+						if err := a.SetModel(d, m); err != nil {
+							return nil, err
+						}
+					}
+					out = append(out, map[string]any{"id": d.ID, "own": d.Model, "model": a.ModelOf(d)})
 				}
-				return map[string]any{"id": d.ID, "own": d.Model, "model": a.ModelOf(d)}, nil
+				if len(out) == 1 {
+					return out[0], nil
+				}
+				return out, nil
 			})
 		},
 	})

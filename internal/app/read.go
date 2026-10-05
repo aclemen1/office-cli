@@ -42,10 +42,12 @@ type Row struct {
 	Pending        int      `json:"pending_transitions,omitempty"`
 	BlockedBy      []string `json:"blocked_by,omitempty"`
 	BlockedByNames []string `json:"blocked_by_names,omitempty"`
+	Model          string   `json:"model,omitempty"`
 }
 
 // List lists dossiers by state; with in, only the dossiers that one includes.
-func (a *App) List(status, in string) ([]Row, error) {
+// model, when set, keeps the dossiers whose session runs on it (a model id or a part of it, e.g. sonnet).
+func (a *App) List(status, in, model string) ([]Row, error) {
 	all, err := a.All()
 	if err != nil {
 		return nil, err
@@ -68,6 +70,9 @@ func (a *App) List(status, in string) ([]Row, error) {
 	}
 	rows := []Row{}
 	for _, d := range all {
+		if model != "" && !strings.Contains(a.ModelOf(d), model) {
+			continue
+		}
 		switch status {
 		case "active":
 			if d.State != dossier.Open && d.State != dossier.Waiting {
@@ -87,7 +92,7 @@ func (a *App) List(status, in string) ([]Row, error) {
 			continue
 		}
 		rows = append(rows, Row{ID: d.ID, Title: d.Title, State: d.State, Activity: Activity(d, panesNow),
-			WaitingOn: d.WaitingOn, WaitUntil: d.WaitUntil, Alias: d.Alias, Label: d.Label(), NoAction: d.NoAction, Starred: d.Starred, Updated: d.Updated, Pending: len(d.Run.PendingTransitions), BlockedBy: BlockedBy(d, idx), BlockedByNames: BlockerNames(BlockedBy(d, idx), idx)})
+			WaitingOn: d.WaitingOn, WaitUntil: d.WaitUntil, Alias: d.Alias, Label: d.Label(), NoAction: d.NoAction, Starred: d.Starred, Updated: d.Updated, Pending: len(d.Run.PendingTransitions), BlockedBy: BlockedBy(d, idx), BlockedByNames: BlockerNames(BlockedBy(d, idx), idx), Model: a.ModelOf(d)})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	return rows, nil

@@ -379,3 +379,10 @@ func TestAPermanentDossierIsNotClosedByAccident(t *testing.T) {
 		t.Fatalf("after close --force: %+v", d)
 	}
 }
+
+func TestResumeOnAnOpenDossierChangesNothing(t *testing.T) {
+	officeWith(t, "Ordo")
+	if _, err := runInProcess("resume", []string{"D-0001"}); err != nil {
+		t.Fatalf("resume of an open dossier: %v", err)
+	}
+}

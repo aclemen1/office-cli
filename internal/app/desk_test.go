@@ -199,17 +199,17 @@ func TestResolveTellsTheDossierAndFilesTheEscalation(t *testing.T) {
 	if len(open) != 2 || open[0].Status != escalationDelivered || open[1].Status != escalationPending {
 		t.Fatalf("open %+v", open)
 	}
-	if _, err := f.a.Resolve("D-0003", "x"); err == nil {
+	if _, err := f.a.Resolve("D-0003", "x", false); err == nil {
 		t.Fatal("resolved an escalation nobody sent")
 	}
-	if _, err := f.a.Resolve("D-0001", " "); err == nil {
+	if _, err := f.a.Resolve("D-0001", " ", false); err == nil {
 		t.Fatal("resolved without a decision")
 	}
-	res, err := f.a.Resolve("D-0001", "Règle adoptée.")
+	res, err := f.a.Resolve("D-0001", "Règle adoptée.", false)
 	if err != nil || res.From != "D-0001" || res.Open != 1 {
 		t.Fatalf("resolve %+v %v", res, err)
 	}
-	if res, err := f.a.Resolve(strings.TrimSuffix(open[1].File, ".md"), "Lien ajouté."); err != nil || res.Open != 0 {
+	if res, err := f.a.Resolve(strings.TrimSuffix(open[1].File, ".md"), "Lien ajouté.", false); err != nil || res.Open != 0 {
 		t.Fatalf("resolve by file %+v %v", res, err)
 	}
 	done := ResolvedEscalations(f.a.Desk())
@@ -219,7 +219,7 @@ func TestResolveTellsTheDossierAndFilesTheEscalation(t *testing.T) {
 	if log, _ := os.ReadFile(mustGet(t, f, "1").Path("log.md")); !strings.Contains(string(log), "Decision on your escalation: Règle adoptée.") {
 		t.Fatalf("dossier log:\n%s", log)
 	}
-	if _, err := f.a.Resolve("D-0001", "encore"); err == nil {
+	if _, err := f.a.Resolve("D-0001", "encore", false); err == nil {
 		t.Fatal("resolved twice")
 	}
 }
@@ -381,5 +381,22 @@ func TestAPlaceholderAnswersAnItemUntilTellReplacesIt(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(f.a.S.Meta("run", "progress.json")); strings.Contains(string(b), "ph1") {
 		t.Fatal("the placeholder stayed open after tell")
+	}
+}
+
+func TestResolveAllTakesEveryEscalationOfADossier(t *testing.T) {
+	f := newFixture(t)
+	f.a.Open(OpenParams{Title: "Migration", NoStart: true})
+	deskWith(t, f, "working")
+	f.a.Escalate(mustGet(t, f, "1"), "Première demande")
+	f.a.Escalate(mustGet(t, f, "1"), "Seconde demande")
+	if _, err := f.a.Resolve("D-0001", "ok", false); err == nil || !strings.Contains(err.Error(), "Première demande") {
+		t.Fatalf("an ambiguous resolve should show the escalations: %v", err)
+	}
+	if res, err := f.a.Resolve("D-0001", "Les deux sont adoptées.", true); err != nil || res.Open != 0 {
+		t.Fatalf("resolve all %+v %v", res, err)
+	}
+	if n := len(ResolvedEscalations(f.a.Desk())); n != 2 {
+		t.Fatalf("resolved %d", n)
 	}
 }

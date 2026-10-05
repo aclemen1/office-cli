@@ -31,9 +31,18 @@ type Usage struct {
 	FreeAnswers        int            `json:"question_free_answers"`
 	Merges             int            `json:"merges"`
 	Moves              int            `json:"moves"`
-	ReopenedSoon       []string       `json:"reopened_within_48h"`
+	ReopenedSoon       []Reopened     `json:"reopened_within_48h"`
+	UnknownVerbs       []UsageItem    `json:"cli_unknown_verbs"`
 	PendingTransitions int            `json:"pending_transitions"`
 	Escalations        []string       `json:"escalations"`
+}
+
+// Reopened is a dossier closed and reopened within 48 hours: why it was
+// closed, and what came after, to tell an early close from a new affair.
+type Reopened struct {
+	Dossier string `json:"dossier"`
+	Closed  string `json:"closed,omitempty"`
+	After   string `json:"after,omitempty"`
 }
 
 // UsageItem is one kind of event, how often it happened and where.
@@ -46,7 +55,7 @@ type UsageItem struct {
 var (
 	quotedRe     = regexp.MustCompile(`"[^"]{0,400}"|«[^»]{0,400}»|“[^”]{0,400}”`)
 	correctionRe = regexp.MustCompile(`(?i)(^|\W)(non[ ,.!]|pas ça|plutôt|je préf[eè]re|j'aimerais plutôt|au lieu|ce n'est pas|c'est faux|tu as oublié|ça ne marche pas|ne fonctionne pas|bug)`)
-	officeCLIRe  = regexp.MustCompile(`(?m)(?:^|[;&|(]|\$\()\s*(?:\S*/)?(?:office|theoffice|dossier)\s+([a-z][a-z-]+)`)
+	officeCLIRe  = regexp.MustCompile(`(?m)(?:^|[;&|(]|\$\()\s*(?:\S*/)?(?:office|theoffice|dossier)\s+([a-z][a-z-]+)(?:\s|$|[;&|)])`)
 )
 
 // scrub keeps the shape of an office message and drops quoted values, which
@@ -103,13 +112,13 @@ func (a *App) Usage(since time.Time, factsOnly bool) Usage {
 	u := Usage{Office: a.OfficeName(), Since: since.Format(time.RFC3339), ToolCalls: map[string]int{}, CLICalls: map[string]int{}}
 	all, _ := a.All()
 	all = append(all, a.Desk())
-	var toolErr, cliErr, denied, corr tally
+	var toolErr, cliErr, denied, corr, unknown tally
 	for _, d := range all {
 		if d.State == dossier.Open || d.State == dossier.Waiting {
 			u.Dossiers++
 		}
 		u.PendingTransitions += len(d.Run.PendingTransitions)
-		a.usageLog(d, since, &u)
+		a.usageLog(d, since, factsOnly, &u)
 		if d.Run.Session == "" {
 			continue
 		}
@@ -121,9 +130,10 @@ func (a *App) Usage(since time.Time, factsOnly bool) Usage {
 			continue
 		}
 		u.Sessions++
-		usageTranscript(path, d.ID, since, factsOnly, &u, &toolErr, &cliErr, &denied, &corr)
+		usageTranscript(path, d.ID, since, factsOnly, &u, &toolErr, &cliErr, &denied, &corr, &unknown)
 	}
 	u.ToolErrors, u.CLIErrors, u.PermissionDenied, u.Corrections = toolErr.list(), cliErr.list(), denied.list(), corr.list()
+	u.UnknownVerbs = unknown.list()
 	u.Escalations = []string{}
 	if !factsOnly {
 		desk := a.Desk()
@@ -136,20 +146,22 @@ func (a *App) Usage(since time.Time, factsOnly bool) Usage {
 		}
 	}
 	if u.ReopenedSoon == nil {
-		u.ReopenedSoon = []string{}
+		u.ReopenedSoon = []Reopened{}
 	}
 	return u
 }
 
 var logLineRe = regexp.MustCompile(`^- (\S+) · (.*)$`)
 
-func (a *App) usageLog(d *dossier.Dossier, since time.Time, u *Usage) {
+func (a *App) usageLog(d *dossier.Dossier, since time.Time, factsOnly bool, u *Usage) {
 	f, err := os.Open(d.Path("log.md"))
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	var closedAt time.Time
+	closedWhy := ""
+	after := -1 // the reopening that waits for the next line
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
@@ -163,7 +175,13 @@ func (a *App) usageLog(d *dossier.Dossier, since time.Time, u *Usage) {
 		}
 		line := m[2]
 		if strings.Contains(line, "→ done") {
-			closedAt = at
+			closedAt, closedWhy = at, line
+		}
+		if after >= 0 && !at.Before(since) {
+			if !factsOnly {
+				u.ReopenedSoon[after].After = scrub(line)
+			}
+			after = -1
 		}
 		if at.Before(since) {
 			continue
@@ -174,7 +192,13 @@ func (a *App) usageLog(d *dossier.Dossier, since time.Time, u *Usage) {
 		case strings.HasPrefix(line, "moved from "):
 			u.Moves++
 		case strings.HasPrefix(line, "done → open") && !closedAt.IsZero() && at.Sub(closedAt) < 48*time.Hour:
-			u.ReopenedSoon = append(u.ReopenedSoon, d.ID)
+			r := Reopened{Dossier: d.ID}
+			if !factsOnly {
+				r.Closed = scrub(closedWhy)
+			}
+			u.ReopenedSoon = append(u.ReopenedSoon, r)
+			after = len(u.ReopenedSoon) - 1
+			continue
 		}
 	}
 }
@@ -200,7 +224,7 @@ func textOf(c json.RawMessage) string {
 	return ""
 }
 
-func usageTranscript(path, id string, since time.Time, factsOnly bool, u *Usage, toolErr, cliErr, denied, corr *tally) {
+func usageTranscript(path, id string, since time.Time, factsOnly bool, u *Usage, toolErr, cliErr, denied, corr, unknown *tally) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -241,7 +265,8 @@ func usageTranscript(path, id string, since time.Time, factsOnly bool, u *Usage,
 		}
 		_ = json.Unmarshal(e.Message.Content, &blocks)
 		if e.Origin.Kind == "human" && len(blocks) == 0 {
-			if t := textOf(e.Message.Content); correctionRe.MatchString(t) {
+			// A pasted block (a mail, a log) is not the user's own words.
+			if t := textOf(e.Message.Content); correctionRe.MatchString(t) && !strings.Contains(t, "<pasted_content") {
 				what := "correction"
 				if !factsOnly {
 					what = scrub(t)
@@ -262,8 +287,10 @@ func usageTranscript(path, id string, since time.Time, factsOnly bool, u *Usage,
 						x.cli = m[1]
 						if spec.FindVerb(m[1]) == nil {
 							x.cli += " (unknown verb)"
+							unknown.add(m[1], id)
+						} else {
+							u.CLICalls[x.cli]++
 						}
-						u.CLICalls[x.cli]++
 					}
 				}
 				uses[b.ID] = x

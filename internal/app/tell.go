@@ -140,7 +140,10 @@ func (a *App) Release(ref string, dryRun bool) (string, error) {
 		return "", err
 	}
 	if !dryRun {
-		_ = a.Desk().Log("released %s · %s", ref, detail)
+		desk := a.Desk()
+		if err := a.ensureDesk(desk); err == nil {
+			_ = desk.Log("released %s · %s", ref, detail)
+		}
 	}
 	return detail, nil
 }

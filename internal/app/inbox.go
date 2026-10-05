@@ -413,7 +413,9 @@ func (a *App) InboxAttach(name string, d *dossier.Dossier) (InboxItem, error) {
 
 // InboxRelease moves an entry to the Trash once it is filed, attached, and
 // every file passes the [inbox] check. Nothing moves while a step is missing.
-func (a *App) InboxRelease(name string, dryRun bool) (string, error) {
+// noDossier, when the user wants the entry attached to no dossier, says why;
+// the entry must still be filed and pass the check.
+func (a *App) InboxRelease(name string, dryRun bool, noDossier string) (string, error) {
 	var it InboxItem
 	if err := a.withInbox(func(st *inboxState) error {
 		x, err := a.inboxItem(st, name)
@@ -428,8 +430,8 @@ func (a *App) InboxRelease(name string, dryRun bool) (string, error) {
 	if it.Filed == "" {
 		missing = append(missing, "not filed (inbox file)")
 	}
-	if len(it.Attached) == 0 {
-		missing = append(missing, "attached to no dossier (inbox attach)")
+	if len(it.Attached) == 0 && strings.TrimSpace(noDossier) == "" {
+		missing = append(missing, "attached to no dossier (inbox attach, or release with a reason for no dossier)")
 	}
 	if tpl := a.S.Config.Inbox.Check; len(tpl) > 0 {
 		for _, f := range it.paths {
@@ -466,6 +468,9 @@ func (a *App) InboxRelease(name string, dryRun bool) (string, error) {
 		}
 	}
 	detail := fmt.Sprintf("%d file(s) checked; moved to %s", len(it.paths), dest)
+	if len(it.Attached) == 0 {
+		detail += "; no dossier: " + strings.TrimSpace(noDossier)
+	}
 	_ = a.Desk().Log("inbox %s released · %s", it.Name, detail)
 	return detail, nil
 }

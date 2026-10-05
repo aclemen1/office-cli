@@ -50,6 +50,7 @@ func fakeACP(logPath string) {
 	in.Buffer(make([]byte, 1<<20), 16<<20)
 	out := json.NewEncoder(os.Stdout)
 	sessions := 0
+	tails := 0 // _session/tail: the first answer sets a cursor, the second shows a step, the third an idle session
 	appendLine(logPath, map[string]any{"method": "process", "args": os.Args[1:],
 		"env": map[string]string{"DOSSIER_ID": os.Getenv("DOSSIER_ID"), "ADDITIONAL_CLAUDE_MD": os.Getenv("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD")}})
 	for in.Scan() {
@@ -81,6 +82,16 @@ func fakeACP(logPath string) {
 				"sessionId": params["sessionId"], "options": []any{map[string]any{"optionId": "allow", "name": "Allow"}}}})
 		case "session/close":
 			out.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{}})
+		case "_session/tail":
+			tails++
+			res := map[string]any{"updates": []any{}, "cursor": fmt.Sprintf("c%d", tails), "status": "working"}
+			switch {
+			case tails == 2:
+				res["updates"] = []any{map[string]any{"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "mcp__office__show"}}
+			case tails >= 3:
+				res["status"] = "idle"
+			}
+			out.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": res})
 		default:
 			out.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32601, "message": "unknown"}})
 		}
@@ -132,7 +143,7 @@ func fakeConnector(mode, logPath string) {
 	}
 	switch verb {
 	case "describe":
-		fmt.Print(`{"name":"fake","protocol":1,"verbs":["describe","poll","transition","claim","send","wait","progress"]}`)
+		fmt.Print(`{"name":"fake","protocol":1,"verbs":["describe","poll","transition","claim","send","wait","progress","release"]}`)
 	case "poll":
 		watch, _ := in["watch"].([]any)
 		events := []any{}
@@ -161,6 +172,8 @@ func fakeConnector(mode, logPath string) {
 		fmt.Print(`{"ready":true}`)
 	case "claim":
 		fmt.Print(`{"ok":true,"detail":"tagged"}`)
+	case "release":
+		fmt.Print(`{"ok":true,"detail":"released"}`)
 	case "send":
 		fmt.Print(`{"ok":true,"thread_refs":["fake:thread/told/thread-reply"],"sent":1}`)
 	case "transition":

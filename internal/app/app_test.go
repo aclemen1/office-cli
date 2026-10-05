@@ -423,7 +423,7 @@ func TestGraph(t *testing.T) {
 	if len(f.calls("session/new")) != 0 {
 		t.Fatal("a light dependent must not get a session")
 	}
-	rows, _ := f.a.List("all", "")
+	rows, _ := f.a.List("all", "", "")
 	for _, r := range rows {
 		if r.ID == "D-0002" && len(r.BlockedBy) != 0 {
 			t.Fatalf("D-0002 still blocked: %+v", r)

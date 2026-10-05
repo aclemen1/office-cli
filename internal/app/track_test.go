@@ -132,7 +132,7 @@ func TestTodoListsOpenDossiersThatNeedAction(t *testing.T) {
 	f.a.Park(d, "")
 	d, _ = f.a.Load("3")
 	f.a.SetState(d, "wait", "", "Patricia")
-	rows, err := f.a.List("todo", "")
+	rows, err := f.a.List("todo", "", "")
 	if err != nil || len(rows) != 1 || rows[0].Title != "À faire" {
 		t.Fatalf("todo %+v %v", rows, err)
 	}

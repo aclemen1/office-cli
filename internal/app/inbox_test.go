@@ -50,7 +50,7 @@ func TestAnInboxEntryGoesToTheDeskThenToTheTrash(t *testing.T) {
 	if d := f.a.FindByThread("inbox:item/Rio"); d == nil || !IsDesk(d) {
 		t.Fatal("the desk did not get the entry")
 	}
-	if _, err := f.a.InboxRelease("Rio", false); err == nil || !strings.Contains(err.Error(), "not filed") {
+	if _, err := f.a.InboxRelease("Rio", false, ""); err == nil || !strings.Contains(err.Error(), "not filed") {
 		t.Fatalf("released before filing: %v", err)
 	}
 	if it, err := f.a.InboxFile("Rio", "voyage"); err != nil || it.State != "filed" || len(it.Concepts) != 2 {
@@ -63,20 +63,49 @@ func TestAnInboxEntryGoesToTheDeskThenToTheTrash(t *testing.T) {
 	if it, err := f.a.InboxAttach("Rio", mustGet(t, f, "1")); err != nil || it.State != "attached" {
 		t.Fatalf("attach %+v %v", it, err)
 	}
-	if _, err := f.a.InboxRelease("Rio", false); err == nil || !strings.Contains(err.Error(), "not kept elsewhere") {
+	if _, err := f.a.InboxRelease("Rio", false, ""); err == nil || !strings.Contains(err.Error(), "not kept elsewhere") {
 		t.Fatalf("released though the check failed: %v", err)
 	}
 	held = true
-	if _, err := f.a.InboxRelease("Rio", true); err != nil {
+	if _, err := f.a.InboxRelease("Rio", true, ""); err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(in, "Rio")); err != nil {
 		t.Fatal("a dry run moved the entry")
 	}
-	if detail, err := f.a.InboxRelease("Rio", false); err != nil || !strings.Contains(detail, ".Trash") {
+	if detail, err := f.a.InboxRelease("Rio", false, ""); err != nil || !strings.Contains(detail, ".Trash") {
 		t.Fatalf("release %q %v", detail, err)
 	}
 	if _, err := os.Stat(filepath.Join(in, "Rio")); !os.IsNotExist(err) {
 		t.Fatal("the entry is still in the inbox")
+	}
+}
+
+func TestAnInboxEntryCanGoWithoutADossierWhenTheUserSaysWhy(t *testing.T) {
+	f := newFixture(t)
+	deskWith(t, f, "idle")
+	f.a.S.Config.Inbox.Settle = "1ms"
+	f.a.S.Config.Inbox.File = []string{"mnemo", "remember", "{path}"}
+	f.a.S.Config.Inbox.Check = []string{"artefact", "which", "{file}"}
+	f.a.S.Config.Inbox.Holder = "mnemo"
+	os.WriteFile(filepath.Join(f.a.InboxDir(), "topo.md"), []byte("x"), 0o644)
+	old := inboxRun
+	t.Cleanup(func() { inboxRun = old })
+	inboxRun = func(argv []string) ([]byte, error) {
+		if argv[0] == "mnemo" {
+			return []byte(`{"ok":true,"result":[{"status":"ingested","concepts":["c1"]}]}`), nil
+		}
+		return []byte(`{"ok":true,"result":{"found":true,"holders":[{"by":"mnemo"}]}}`), nil
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := f.a.InboxRelease("topo.md", false, "inutile"); err == nil {
+		t.Fatal("an unfiled entry left without a dossier")
+	}
+	f.a.InboxFile("topo.md", "")
+	if _, err := f.a.InboxRelease("topo.md", false, ""); err == nil {
+		t.Fatal("left without a dossier and without a reason")
+	}
+	if detail, err := f.a.InboxRelease("topo.md", false, "Alain : on peut le jeter"); err != nil || !strings.Contains(detail, "no dossier: Alain") {
+		t.Fatalf("release %q %v", detail, err)
 	}
 }

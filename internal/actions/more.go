@@ -221,12 +221,13 @@ func init() {
 		Params: []spec.Param{
 			{Name: "escalation", Kind: spec.String, Positional: true, Required: true, Help: "Escalation file (from `office escalations`), or the dossier it came from when it has only one open."},
 			{Name: "decision", Kind: spec.String, Required: true, Help: "What the user decided."},
+			{Name: "all", Kind: spec.Bool, Help: "Resolve every open escalation that matches, e.g. several from one dossier, with this decision."},
 		},
 		Effects:  []string{"Moves the escalation to desk/escalations/resolved/ with the decision, logs it, and notifies the dossier."},
 		Examples: []string{`office resolve P-0018 --decision "Règle adoptée dans la charte perso."`},
 		Run: func(ctx *spec.Context) (any, error) {
 			return withApp(ctx, true, func(a *app.App) (any, error) {
-				return a.Resolve(ctx.Str("escalation"), ctx.Str("decision"))
+				return a.Resolve(ctx.Str("escalation"), ctx.Str("decision"), ctx.Bool("all"))
 			})
 		},
 	})
