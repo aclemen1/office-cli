@@ -33,6 +33,7 @@ office's prefix: P-0042 and U-0042 are in different offices.
 |---|---|
 | Open a dossier | `office open --title "…" --instruction "…" [--file <path>]` |
 | Add it to another dossier, e.g. a meeting | `--in <id or alias>` on `open`, or `office link <holder> <id> --rel includes` |
+| In an office that keeps agendas ([agenda], e.g. ordo), including a dossier in a meeting proposes it as an item there; accept it on the agenda only when the user asks (the agenda's own tool, e.g. ordo item accept) | |
 | Tell a dossier something new | `office notify <from> <to> --text "…"` |
 | Send a text to the user (Telegram); a reply comes back as an event | `office tell <id|desk> --text "…"` or `--file brief.md` |
 | Escalate to the desk what goes beyond a dossier (a rule, a skill) | `office escalate <from> --text "…"` |
@@ -51,6 +52,7 @@ office's prefix: P-0042 and U-0042 are in different offices.
 | Start a stopped session, or restart a running one | `office start <id>` |
 | Escalations the desk has not resolved | `office escalations --format text` |
 | Record the decision on an escalation | `office resolve <file or id> --decision "…"` |
+| The office's inbox (documents dropped for the desk): list, file, attach, release | `office inbox [file <name> --note "…" \| attach <name> --dossier <id> \| release <name>]` |
 | Open the office's desk (a lasting session, no state) | `office desk` |
 | Turn this agent's conversation into a new dossier (run inside its herdr pane) | `office adopt --title "…" --office <root>` |
 

@@ -10,6 +10,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/fsnotify/fsnotify v1.10.1
 	golang.org/x/text v0.24.0
 	gopkg.in/yaml.v3 v3.0.1
 )

@@ -154,6 +154,10 @@ func Init(root, sphere string, makeDefault bool) (*Office, error) {
 			return nil, err
 		}
 	}
+	// The inbox: documents the user drops for the desk.
+	if err := os.MkdirAll(filepath.Join(root, "inbox"), 0o755); err != nil {
+		return nil, err
+	}
 	if makeDefault {
 		p := userConfigPath()
 		_ = os.MkdirAll(filepath.Dir(p), 0o755)

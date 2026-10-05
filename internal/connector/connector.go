@@ -285,3 +285,16 @@ func (r Runner) env() []string {
 	}
 	return env
 }
+
+// Release asks the source to let go of an item the user handed over and that
+// is now kept elsewhere (an inbox file filed in the memory): the connector
+// checks it is safe, then removes it. Optional verb: call it only when
+// describe lists "release".
+func (r Runner) Release(sourceRef string, dryRun bool) (string, error) {
+	var out struct {
+		OK     bool   `json:"ok"`
+		Detail string `json:"detail"`
+	}
+	err := r.run("release", map[string]any{"config": r.Source.Config, "source_ref": sourceRef, "dry_run": dryRun}, &out)
+	return out.Detail, err
+}

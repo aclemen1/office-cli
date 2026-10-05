@@ -1,7 +1,11 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+
 	"fmt"
+	"github.com/fsnotify/fsnotify"
 	"io"
 	"strings"
 	"sync"
@@ -35,6 +39,14 @@ func Listen(apps []*App, out io.Writer, stop <-chan struct{}) error {
 			defer wg.Done()
 			a.listenProgress(stop)
 		}(a)
+		if a.inboxOn() && !hasSource(s.Config.Sources, "inbox") {
+			wg.Add(1)
+			go func(a *App) {
+				defer wg.Done()
+				a.listenInbox(say, stop)
+			}(a)
+			say("%s: listening to its inbox", a.OfficeName())
+		}
 		for _, src := range s.Config.Sources {
 			d, err := (connector.Runner{Office: s, Source: src}).Describe()
 			if err != nil || !contains(d.Verbs, "wait") {
@@ -147,5 +159,69 @@ func (a *App) listenProgress(stop <-chan struct{}) {
 		case <-time.After(progressEvery):
 		}
 		a.followProgress(&conn)
+	}
+}
+
+// listenInbox ingests the office's inbox as entries settle: file system
+// events arm a timer to the next settling time; nothing polls.
+func (a *App) listenInbox(say func(string, ...any), stop <-chan struct{}) {
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		say("%s/inbox: %v", a.OfficeName(), err)
+		return
+	}
+	defer w.Close()
+	watchTree := func(root string) {
+		_ = filepath.WalkDir(root, func(p string, de os.DirEntry, err error) error {
+			if err == nil && de.IsDir() {
+				_ = w.Add(p)
+			}
+			return nil
+		})
+	}
+	watchTree(a.InboxDir())
+	ingest := func() {
+		reps, err := a.Ingest([]string{"inbox"}, connector.PollOptions{})
+		if err != nil {
+			say("%s/inbox: %v", a.OfficeName(), err)
+			return
+		}
+		for _, r := range reps {
+			if r.Signals > 0 || len(r.Errors) > 0 {
+				say("%s/inbox: %d item(s) to the desk %s", a.OfficeName(), r.Signals, strings.Join(r.Errors, "; "))
+			}
+		}
+	}
+	timer := time.NewTimer(time.Hour)
+	arm := func() {
+		next := a.inboxNext()
+		if next.IsZero() {
+			return
+		}
+		timer.Stop()
+		timer.Reset(time.Until(next) + 500*time.Millisecond)
+	}
+	ingest()
+	arm()
+	for {
+		select {
+		case <-stop:
+			return
+		case ev, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			if ev.Op&fsnotify.Create != 0 {
+				if fi, err := os.Stat(ev.Name); err == nil && fi.IsDir() {
+					watchTree(ev.Name)
+				}
+			}
+			arm()
+		case err := <-w.Errors:
+			say("%s/inbox: %v", a.OfficeName(), err)
+		case <-timer.C:
+			ingest()
+			arm()
+		}
 	}
 }

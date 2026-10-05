@@ -82,7 +82,7 @@ func (m *model) deskHeader(r row, sel bool, w int) string {
 		dot = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Render("•")
 	}
 	line := " " + leadCell(r.activity, dot) + markCell(r.activity) + "   " + sTitle.Render(strings.ToUpper(r.header)) +
-		sMuted.Render("  desk · "+activityWord(r.activity)) + sFaint.Render("  "+r.office.root)
+		sMuted.Render("  desk · "+activityWord(r.activity)) + m.inboxBadge(r) + sFaint.Render("  "+r.office.root)
 	st := lipgloss.NewStyle().Width(w).MaxWidth(w)
 	if sel {
 		st = st.Background(cSelBg)
@@ -123,6 +123,10 @@ func (m *model) deskView(r *row, w int, add func(...string)) {
 		if d.Run.TabID != "" {
 			field("tab", sText.Render(d.Run.TabID))
 		}
+	}
+	if inbox := m.inboxView(r, w); inbox != nil {
+		section("Inbox")
+		add(inbox...)
 	}
 	if live := m.tailView(r, w); live != nil {
 		section(m.liveTitle())
@@ -249,4 +253,66 @@ func legendView(w int, add func(...string)) {
 
 	section("Office line")
 	item(sTitle.Render("PRO"), "the office's desk: b jumps to it, enter opens it")
+}
+
+type inboxSnap struct {
+	items []app.InboxItem
+	at    time.Time
+}
+
+// inboxView lists the office's inbox under its desk: each entry and how far
+// the desk got with it. It reads the folder at most every two seconds.
+func (m *model) inboxView(r *row, w int) []string {
+	if r == nil || r.office == nil || r.office.a == nil {
+		return nil
+	}
+	s := inboxSnap{items: m.inboxItems(r)}
+	if len(s.items) == 0 {
+		return []string{sFaint.Render("empty")}
+	}
+	words := map[string]string{"settling": "settling", "new": "to send", "sent": "to file", "filed": "to attach", "attached": "to release"}
+	var out []string
+	for _, it := range s.items {
+		state := lipgloss.NewStyle().Foreground(cWaiting).Render(fmt.Sprintf("%-10s", words[it.State]))
+		extra := ""
+		if len(it.Attached) > 0 {
+			extra += " → " + strings.Join(it.Attached, ", ")
+		}
+		line := state + " " + sText.Render(truncate(it.Name, w-20)) + sMuted.Render(fmt.Sprintf(" (%d)", it.Files)+extra)
+		out = append(out, line)
+		if it.Note != "" {
+			out = append(out, "           "+lipgloss.NewStyle().Foreground(cStopped).Render(truncate(it.Note, w-12)))
+		}
+	}
+	return out
+}
+
+// inboxBadge counts the inbox entries the desk has not released yet, for the
+// desk's line in the list.
+func (m *model) inboxBadge(r row) string {
+	items := m.inboxItems(&r)
+	if len(items) == 0 {
+		return ""
+	}
+	return "  " + lipgloss.NewStyle().Foreground(cWaiting).Bold(true).Render(fmt.Sprintf("inbox %d", len(items)))
+}
+
+// inboxItems reads an office's inbox at most every two seconds.
+func (m *model) inboxItems(r *row) []app.InboxItem {
+	if r == nil || r.office == nil || r.office.a == nil {
+		return nil
+	}
+	if m.inboxSnaps == nil {
+		m.inboxSnaps = map[string]inboxSnap{}
+	}
+	s, ok := m.inboxSnaps[r.office.root]
+	if !ok || time.Since(s.at) > 2*time.Second {
+		items, err := r.office.a.Inbox()
+		if err != nil {
+			return s.items
+		}
+		s = inboxSnap{items, time.Now()}
+		m.inboxSnaps[r.office.root] = s
+	}
+	return s.items
 }

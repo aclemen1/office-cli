@@ -83,6 +83,9 @@ func (a *App) Link(fromID, toID, rel string) (LinkResult, error) {
 		return LinkResult{}, err
 	}
 	_ = from.Log("link %s %s (%s)", rel, to.ID, to.Title)
+	if rel == dossier.RelIncludes {
+		a.proposeToAgenda(from, to)
+	}
 	return LinkResult{From: from.ID, Rel: rel, To: to.ID, Links: from.Links}, nil
 }
 

@@ -528,6 +528,16 @@ func (a *App) client(d *dossier.Dossier) (*acp.Client, error) {
 	exe, _ = filepath.EvalSymlinks(exe)
 	mcp := []acp.MCPServer{{Name: "office", Command: exe, Args: []string{"mcp"},
 		Env: []acp.EnvEntry{{Name: "DOSSIER_ID", Value: d.ID}, {Name: "OFFICE_DIR", Value: a.S.Root}}}}
+	for _, m := range cfg.Agent.MCP {
+		if len(m.Command) == 0 {
+			continue
+		}
+		var env []acp.EnvEntry
+		for k, v := range m.Env {
+			env = append(env, acp.EnvEntry{Name: k, Value: strings.ReplaceAll(office.ExpandHome(v), "{id}", d.ID)})
+		}
+		mcp = append(mcp, acp.MCPServer{Name: m.Name, Command: office.ExpandHome(m.Command[0]), Args: m.Command[1:], Env: env})
+	}
 	meta := map[string]any{}
 	for k, v := range cfg.ACP.Meta {
 		meta[k] = v

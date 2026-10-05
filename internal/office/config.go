@@ -17,6 +17,36 @@ type Config struct {
 	Lifecycle Lifecycle      `toml:"lifecycle"`
 	Routing   Routing        `toml:"routing"`
 	Sources   []SourceConfig `toml:"source"`
+	Agenda    AgendaSection  `toml:"agenda"`
+	Inbox     InboxSection   `toml:"inbox"`
+}
+
+// InboxSection: the office's drop folder. Each top-level entry (a file or a
+// whole folder) goes to the desk once it stops changing; the desk files it
+// (File), attaches it to a dossier, then releases it to the Trash, after Check
+// found every file kept elsewhere. Placeholders: {path}, {file}, {sphere}, {note}.
+type InboxSection struct {
+	Dir    string   `toml:"dir"`    // default inbox
+	Settle string   `toml:"settle"` // default 30s
+	Off    bool     `toml:"off"`
+	File   []string `toml:"file"`   // files an entry, e.g. mnemo remember {path} --sphere {sphere} --note {note} --wait --format json
+	Check  []string `toml:"check"`  // checks one file is kept, e.g. artefact which {file} --sphere {sphere} --format json
+	Holder string   `toml:"holder"` // the holder Check must report, e.g. mnemo
+}
+
+// AgendaSection names the CLI that keeps the meetings' agendas (ordo): a
+// dossier included in a meeting's dossier is proposed as an item there.
+type AgendaSection struct {
+	Command []string `toml:"command"`
+	Sphere  string   `toml:"sphere"`
+}
+
+// MCPConfig is an MCP server added to every session; {id} in an env value
+// stands for the dossier's id.
+type MCPConfig struct {
+	Name    string            `toml:"name"`
+	Command []string          `toml:"command"`
+	Env     map[string]string `toml:"env"`
 }
 
 type OfficeSection struct {
@@ -41,8 +71,9 @@ type AgentSection struct {
 	DisablePlugins []string `toml:"disable_plugins"`
 	// Model of the dossiers' sessions, unless a dossier names its own; DeskModel
 	// is the desk's. Empty: the agent's own default.
-	Model     string `toml:"model"`
-	DeskModel string `toml:"desk_model"`
+	Model     string      `toml:"model"`
+	DeskModel string      `toml:"desk_model"`
+	MCP       []MCPConfig `toml:"mcp"`
 }
 
 type PromptSection struct {

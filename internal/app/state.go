@@ -408,10 +408,15 @@ func (a *App) saveCursor(source, cursor string) error {
 
 func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport, error) {
 	dryRun := opt.DryRun
+	wantInbox := len(names) == 0
 	sources := a.S.Config.Sources
 	if len(names) > 0 {
 		sources = nil
 		for _, n := range names {
+			if n == "inbox" && !hasSource(a.S.Config.Sources, "inbox") {
+				wantInbox = true
+				continue
+			}
 			cfg, ok := a.S.Config.Source(n)
 			if !ok {
 				return nil, spec.UserError("no [[source]] named %q in %s. Declared: %s", n, a.S.Meta("config.toml"), sourceNames(a.S.Config.Sources))
@@ -419,7 +424,7 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 			sources = append(sources, cfg)
 		}
 	}
-	if len(sources) == 0 {
+	if len(sources) == 0 && !(wantInbox && a.inboxOn()) {
 		return nil, spec.UserError("no [[source]] declared in %s. Add one, for example name = \"gmail\" with its command", a.S.Meta("config.toml"))
 	}
 	var reports []IngestReport
@@ -583,6 +588,18 @@ func (a *App) Ingest(names []string, opt connector.PollOptions) ([]IngestReport,
 		a.S.Unlock()
 		unlockSource()
 		reports = append(reports, rep)
+	}
+	if wantInbox && !dryRun && a.inboxOn() {
+		rep := IngestReport{Source: "inbox"}
+		if err := a.S.Lock(); err != nil {
+			rep.Errors = append(rep.Errors, err.Error())
+		} else {
+			a.ingestInbox(&rep)
+			a.S.Unlock()
+		}
+		if rep.Signals > 0 || len(rep.Errors) > 0 {
+			reports = append(reports, rep)
+		}
 	}
 	if !dryRun {
 		handled := map[string]bool{}

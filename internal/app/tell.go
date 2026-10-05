@@ -119,3 +119,28 @@ func (a *App) toDesk(s connector.Signal) (OpenResult, error) {
 	r.Outcome = "desk"
 	return r, err
 }
+
+// Release lets the source of ref remove an item it holds, once its connector
+// has checked the item is kept elsewhere; the desk notes it.
+func (a *App) Release(ref string, dryRun bool) (string, error) {
+	name, _, ok := strings.Cut(ref, ":")
+	if !ok {
+		return "", spec.UserError("%q is not a source reference, e.g. inbox:item/<name>", ref)
+	}
+	src, ok := a.S.Config.Source(name)
+	if !ok {
+		return "", spec.UserError("no [[source]] named %q in this office", name)
+	}
+	runner := connector.Runner{Office: a.S, Source: src}
+	if d, err := runner.Describe(); err != nil || !contains(d.Verbs, "release") {
+		return "", spec.UserError("source %q cannot release items", name)
+	}
+	detail, err := runner.Release(ref, dryRun)
+	if err != nil {
+		return "", err
+	}
+	if !dryRun {
+		_ = a.Desk().Log("released %s · %s", ref, detail)
+	}
+	return detail, nil
+}

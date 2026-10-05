@@ -72,6 +72,7 @@ type model struct {
 	jump            *jump   // the « : » picker, nil when closed
 	tail            *tailer // preview of the selected dossier's session
 	tailBusy        bool
+	inboxSnaps      map[string]inboxSnap   // the offices' inboxes, read every two seconds
 	tailCache       map[string]*tailer     // previews of the last sessions seen
 	tailConns       map[string]*acp.Client // one ACP connection per office root
 	liveOldestFirst bool                   // l: the preview reads from the oldest entry
